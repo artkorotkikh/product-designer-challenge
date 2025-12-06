@@ -34,7 +34,7 @@ export function UserMenu() {
         className="relative flex items-center justify-center w-10 h-10 rounded-full bg-gradient-to-br from-primary to-arrakis-blue border-2 border-background hover:opacity-90 transition-opacity cursor-pointer focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:ring-offset-background"
         aria-label="User menu"
       >
-        <User className="w-6 h-6 text-primary-foreground" />
+        
       </button>
 
       {/* Dropdown Menu */}

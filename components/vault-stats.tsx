@@ -1,8 +1,8 @@
 'use client'
 
 import * as React from 'react'
-import { ArrowUpRight, ArrowDownRight } from 'lucide-react'
-import { cn, formatCompactNumber, formatNumber, getRelativeTime } from '@/lib/utils'
+import { ArrowUpRight, ArrowDownRight, Info, AlertCircle, CheckCircle2, X, XCircle } from 'lucide-react'
+import { cn, formatCompactNumber, formatNumber, getRelativeTime, calculateVaultStatus, type VaultStatus } from '@/lib/utils'
 import { TokenIcon } from '@/components/token-icon'
 
 interface VaultStatsProps {
@@ -86,6 +86,189 @@ function SubscriptPrice({ num }: { num: number | string }) {
   return <span>${formatNumber(n, 3)}</span>
 }
 
+/**
+ * Status Tooltip Component
+ * Shows detailed breakdown of vault health metrics
+ */
+function StatusTooltip({
+  status,
+  score,
+  breakdown,
+  metrics,
+  onClose,
+}: {
+  status: VaultStatus
+  score: number
+  breakdown: {
+    priceImpact: number
+    inRange: number
+    rebalance: number
+    inventory: number
+    fees: number
+  }
+  metrics: {
+    priceImpact10k?: number
+    inRangePercent?: number
+    rebalanceAgeHours?: number
+    inventoryDiff?: number
+    feesRate?: number
+  }
+  onClose: () => void
+}) {
+  const statusConfig: Record<VaultStatus, { 
+    color: string
+    bgColor: string
+    icon: React.ReactNode
+    title: string
+    description: string
+  }> = {
+    Healthy: {
+      color: 'text-emerald-500',
+      bgColor: 'bg-emerald-500/10 border-emerald-500/20',
+      icon: <CheckCircle2 className="w-5 h-5 text-emerald-500" />,
+      title: 'Vault is operating optimally',
+      description: 'All key metrics are within healthy ranges. The vault is performing well and managing liquidity effectively.',
+    },
+    Warning: {
+      color: 'text-yellow-500',
+      bgColor: 'bg-yellow-500/10 border-yellow-500/20',
+      icon: <AlertCircle className="w-5 h-5 text-yellow-500" />,
+      title: 'Some metrics need attention',
+      description: 'One or more metrics are below optimal levels. Monitor the vault closely and consider rebalancing if issues persist.',
+    },
+    Critical: {
+      color: 'text-red-500',
+      bgColor: 'bg-red-500/10 border-red-500/20',
+      icon: <XCircle className="w-5 h-5 text-red-500" />,
+      title: 'Vault requires immediate attention',
+      description: 'Multiple metrics are in critical ranges. The vault may need rebalancing or has liquidity issues that should be addressed.',
+    },
+  }
+
+  const config = statusConfig[status]
+
+  const getMetricStatus = (score: number) => {
+    if (score >= 80) return { color: 'text-emerald-500', label: 'Good' }
+    if (score >= 50) return { color: 'text-yellow-500', label: 'Fair' }
+    return { color: 'text-red-500', label: 'Poor' }
+  }
+
+  const getMetricRecommendation = (metric: string, score: number, value?: number) => {
+    if (score >= 80) return null
+    
+    switch (metric) {
+      case 'priceImpact':
+        return value !== undefined && value > 0.006
+          ? 'Price impact is high. Consider adding more liquidity or narrowing the price range.'
+          : 'Monitor price impact closely for large trades.'
+      case 'inRange':
+        return 'Liquidity may be outside the active trading range. Consider rebalancing to optimize fee generation.'
+      case 'rebalance':
+        return value !== undefined && value > 24
+          ? 'Last rebalance was more than 24 hours ago. Consider rebalancing to maintain optimal liquidity distribution.'
+          : 'Monitor rebalance frequency to ensure optimal performance.'
+      case 'inventory':
+        return value !== undefined && value > 25
+          ? 'Inventory balance is skewed. This may indicate price movement outside the active range or rebalancing needed.'
+          : 'Monitor inventory balance to maintain optimal 50/50 distribution.'
+      case 'fees':
+        return value !== undefined && value < 0.002
+          ? 'Fee generation is low relative to TVL. This may indicate low trading volume or suboptimal liquidity placement.'
+          : 'Monitor fee generation to ensure optimal returns.'
+      default:
+        return null
+    }
+  }
+
+  // Get only problematic metrics (score < 50)
+  const problematicMetrics = [
+    { name: 'Price Impact', score: breakdown.priceImpact, value: metrics.priceImpact10k ? `${metrics.priceImpact10k.toFixed(2)}%` : undefined },
+    { name: 'In-Range', score: breakdown.inRange, value: metrics.inRangePercent ? `${metrics.inRangePercent.toFixed(0)}%` : undefined },
+    { name: 'Rebalance', score: breakdown.rebalance, value: metrics.rebalanceAgeHours ? (metrics.rebalanceAgeHours < 24 ? `${metrics.rebalanceAgeHours.toFixed(1)}h` : `${(metrics.rebalanceAgeHours / 24).toFixed(1)}d`) : undefined },
+    { name: 'Inventory', score: breakdown.inventory, value: metrics.inventoryDiff ? `${metrics.inventoryDiff.toFixed(1)}%` : undefined },
+    { name: 'Fees Rate', score: breakdown.fees, value: metrics.feesRate ? `${(metrics.feesRate * 100).toFixed(3)}%` : undefined },
+  ].filter(m => m.score < 50)
+
+  return (
+    <div className="absolute z-50 w-72 top-full left-0 mt-2 pointer-events-auto">
+      <div className={cn(
+        'rounded-lg border p-3 shadow-2xl',
+        config.bgColor,
+        'border-border/40',
+        'bg-card'
+      )}>
+        {/* Header */}
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-2">
+            {config.icon}
+            <h3 className={cn('font-semibold text-sm', config.color)}>
+              {config.title}
+            </h3>
+          </div>
+          <button
+            onClick={onClose}
+            className="text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        {/* Score */}
+        <div className="mb-3 pb-3 border-b border-border/40">
+          <div className="flex items-center justify-between mb-1.5">
+            <span className="text-xs text-muted-foreground">Health Score</span>
+            <span className={cn('font-mono font-semibold', config.color)}>
+              {score}/100
+            </span>
+          </div>
+          <div className="w-full h-1.5 bg-muted rounded-full overflow-hidden">
+            <div
+              className={cn('h-full transition-all', {
+                'bg-emerald-500': status === 'Healthy',
+                'bg-yellow-500': status === 'Warning',
+                'bg-red-500': status === 'Critical',
+              })}
+              style={{ width: `${score}%` }}
+            />
+          </div>
+        </div>
+
+        {/* Problematic Metrics */}
+        {problematicMetrics.length > 0 ? (
+          <div className="space-y-2">
+            <h4 className="text-xs font-medium text-foreground">Issues to address:</h4>
+            {problematicMetrics.map((metric) => {
+              const status = getMetricStatus(metric.score)
+              return (
+                <div key={metric.name} className="flex items-center justify-between">
+                  <span className="text-xs text-muted-foreground">{metric.name}</span>
+                  <div className="flex items-center gap-2">
+                    {metric.value && (
+                      <span className="text-[10px] text-muted-foreground/70 font-mono">
+                        {metric.value}
+                      </span>
+                    )}
+                    <span className={cn('text-xs font-mono', status.color)}>
+                      {metric.score}/100
+                    </span>
+                    <span className={cn('text-[10px] px-1.5 py-0.5 rounded', status.color, 'bg-current/10')}>
+                      {status.label}
+                    </span>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        ) : (
+          <div className="text-xs text-muted-foreground">
+            All metrics are within healthy ranges.
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 function StatItem({ label, value, indicator }: StatItemProps) {
   return (
     <div className="stats-item">
@@ -140,7 +323,7 @@ export function VaultStats({ data, loading }: VaultStatsProps) {
         {/* Status */}
         <StatItem
           label="Status"
-          indicator={<div className="w-2 h-2 rounded-full bg-muted-foreground/50 mr-1.5" />}
+          indicator={<div className="w-2 h-2 rounded-full bg-muted-foreground/50 mr-1.5 animate-pulse" />}
           value={
             <div className="w-16 h-10 bg-muted/50 animate-pulse rounded" />
           }
@@ -320,16 +503,162 @@ export function VaultStats({ data, loading }: VaultStatsProps) {
   const feesChange = -1.29
   const apyChange = -1.29
 
+  // Calculate vault health status
+  const healthStatus = React.useMemo(() => {
+    // Extract price impact for $10k trade
+    // Handle both string and number keys
+    const priceImpactBuy = data.summary?.priceImpact?.buy
+    let priceImpact10k: number | undefined
+    
+    if (priceImpactBuy) {
+      // Try string key first
+      const impact = priceImpactBuy['10000'] || priceImpactBuy[10000]
+      if (impact !== undefined && impact !== null) {
+        priceImpact10k = Math.abs(parseFloat(impact.toString()))
+      }
+    }
+
+    // Calculate rebalance age in hours
+    const lastRebalancedDate = data.data?.general?.lastRebalanced
+    const rebalanceAgeHours = lastRebalancedDate
+      ? (Date.now() - new Date(lastRebalancedDate).getTime()) / (1000 * 60 * 60)
+      : undefined
+
+    // Calculate inventory balance difference from 50/50
+    // token0.percentage is already 0-100 range
+    const inventoryDiff = token0?.percentage !== undefined
+      ? Math.abs(token0.percentage - 50)
+      : undefined
+
+    // Calculate fees rate (fees30d / TVL / 30 days = per day rate)
+    const feesRate = tvl > 0 && fees30d > 0
+      ? (fees30d / tvl) / 30 // Convert 30d fees to daily rate
+      : undefined
+
+    // For in-range %, we estimate based on inventory balance stability
+    // If balance is close to 50/50, it suggests price stayed in range
+    // This is a simplified heuristic - ideally would use tick history
+    let inRangePercent: number | undefined
+    if (inventoryDiff !== undefined) {
+      // If inventory is well-balanced (diff < 20%), assume high in-range %
+      // If very unbalanced (diff > 40%), assume low in-range %
+      if (inventoryDiff < 20) {
+        inRangePercent = 85 // High estimate
+      } else if (inventoryDiff < 30) {
+        inRangePercent = 65 // Medium estimate
+      } else {
+        inRangePercent = 35 // Low estimate
+      }
+    }
+
+    return calculateVaultStatus({
+      priceImpact10k,
+      inRangePercent,
+      rebalanceAgeHours,
+      inventoryDiff,
+      feesRate,
+    })
+  }, [data, token0, tvl, fees30d])
+
+  // Status styling
+  const statusConfig: Record<VaultStatus, { color: string; indicatorColor: string }> = {
+    Healthy: { color: 'text-emerald-500', indicatorColor: 'bg-emerald-500' },
+    Warning: { color: 'text-yellow-500', indicatorColor: 'bg-yellow-500' },
+    Critical: { color: 'text-red-500', indicatorColor: 'bg-red-500' },
+  }
+
+  const statusStyle = statusConfig[healthStatus.status]
+  const [showTooltip, setShowTooltip] = React.useState(false)
+  const statusRef = React.useRef<HTMLDivElement>(null)
+
+  // Close tooltip when clicking outside
+  React.useEffect(() => {
+    if (!showTooltip) return
+
+    const handleClickOutside = (event: MouseEvent) => {
+      if (statusRef.current && !statusRef.current.contains(event.target as Node)) {
+        setShowTooltip(false)
+      }
+    }
+
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [showTooltip])
+
+  // Get raw metrics for tooltip
+  const rawMetrics = React.useMemo(() => {
+    const priceImpactBuy = data.summary?.priceImpact?.buy
+    let priceImpact10k: number | undefined
+    
+    if (priceImpactBuy) {
+      const impact = priceImpactBuy['10000'] || priceImpactBuy[10000]
+      if (impact !== undefined && impact !== null) {
+        priceImpact10k = Math.abs(parseFloat(impact.toString()))
+      }
+    }
+
+    const lastRebalancedDate = data.data?.general?.lastRebalanced
+    const rebalanceAgeHours = lastRebalancedDate
+      ? (Date.now() - new Date(lastRebalancedDate).getTime()) / (1000 * 60 * 60)
+      : undefined
+
+    const inventoryDiff = token0?.percentage !== undefined
+      ? Math.abs(token0.percentage - 50)
+      : undefined
+
+    const feesRate = tvl > 0 && fees30d > 0
+      ? (fees30d / tvl) / 30
+      : undefined
+
+    let inRangePercent: number | undefined
+    if (inventoryDiff !== undefined) {
+      if (inventoryDiff < 20) {
+        inRangePercent = 85
+      } else if (inventoryDiff < 30) {
+        inRangePercent = 65
+      } else {
+        inRangePercent = 35
+      }
+    }
+
+    return {
+      priceImpact10k,
+      inRangePercent,
+      rebalanceAgeHours,
+      inventoryDiff,
+      feesRate,
+    }
+  }, [data, token0, tvl, fees30d])
+
   return (
     <div className="stats-container py-2">
       {/* Status */}
-      <StatItem
-        label="Status"
-        indicator={<div className="w-2 h-2 rounded-full bg-emerald-500 mr-1.5" />}
-        value={
-          <span className="stats-number text-emerald-500">Healthy</span>
-        }
-      />
+      <div className="stats-item relative" ref={statusRef}>
+        <div className="stats-header">
+          <div className={`w-2 h-2 rounded-full ${statusStyle.indicatorColor} mr-1.5`} />
+          <span>Status</span>
+        </div>
+        <div className="stats-value-container">
+          <div
+            className="flex items-center gap-2 cursor-help group"
+            onMouseEnter={() => setShowTooltip(true)}
+            onMouseLeave={() => setShowTooltip(false)}
+            onClick={() => setShowTooltip(!showTooltip)}
+          >
+            <span className={`stats-number ${statusStyle.color}`}>{healthStatus.status}</span>
+            <Info className="w-3.5 h-3.5 text-muted-foreground opacity-60 group-hover:opacity-100 transition-opacity" />
+          </div>
+        </div>
+        {showTooltip && (
+          <StatusTooltip
+            status={healthStatus.status}
+            score={healthStatus.score}
+            breakdown={healthStatus.breakdown}
+            metrics={rawMetrics}
+            onClose={() => setShowTooltip(false)}
+          />
+        )}
+      </div>
 
       <div className="stats-divider" />
 

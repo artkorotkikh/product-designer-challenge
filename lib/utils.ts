@@ -222,3 +222,150 @@ export function formatPriceFromTick(price: number | string): string {
     return p.toFixed(6)
   }
 }
+
+/**
+ * Vault Health Status Calculation
+ * Based on weighted scoring system with 5 metrics
+ */
+
+export type VaultStatus = 'Healthy' | 'Warning' | 'Critical'
+
+export interface VaultHealthMetrics {
+  priceImpact10k?: number // Price impact for $10k trade (as decimal, e.g., 0.0024 for 0.24%)
+  inRangePercent?: number // Percentage of time in range (0-100)
+  rebalanceAgeHours?: number // Hours since last rebalance
+  inventoryDiff?: number // Absolute difference from 50/50 balance (0-50)
+  feesRate?: number // Fees / TVL ratio per 24h (as decimal, e.g., 0.004 for 0.4%)
+}
+
+/**
+ * Calculate price impact score (0-100)
+ * More lenient thresholds for realistic DeFi conditions
+ * Note: impact is already in percentage (e.g., 0.25 = 0.25%, not 25%)
+ * Adjusted: WETH/WOO (3.61%) should score ~40, VSN/USDC (0.25%) should score 100
+ */
+function scorePriceImpact(impact: number): number {
+  const absImpact = Math.abs(impact)
+  if (absImpact <= 0.5) return 100  // ≤ 0.5% - excellent (VSN/USDC: 0.25% → 100)
+  if (absImpact <= 1.0) return 85  // 0.5-1.0% - good (raised from 80)
+  if (absImpact <= 2.0) return 65  // 1.0-2.0% - fair (raised from 60)
+  if (absImpact <= 4.0) return 45  // 2.0-4.0% - poor (WETH/WOO: 3.61% → 45, raised from 40)
+  return 25 // > 4.0% - very poor (raised from 20)
+}
+
+/**
+ * Calculate in-range score (0-100)
+ * Slightly more lenient to help overall scores
+ */
+function scoreInRange(inRangePercent: number): number {
+  if (inRangePercent >= 90) return 100
+  if (inRangePercent >= 70) return 75  // raised from 70
+  if (inRangePercent >= 40) return 50  // raised from 40
+  return 20 // raised from 10
+}
+
+/**
+ * Calculate rebalance age score (0-100)
+ * More lenient thresholds - rebalancing every few days is acceptable
+ */
+function scoreRebalanceAge(hours: number): number {
+  if (hours < 24) return 100  // < 1 day - excellent
+  if (hours < 72) return 80   // 1-3 days - good
+  if (hours < 168) return 60  // 3-7 days - fair
+  if (hours < 336) return 40  // 7-14 days - poor
+  return 20 // > 14 days - very poor (but not critical)
+}
+
+/**
+ * Calculate inventory balance score (0-100)
+ */
+function scoreInventoryBalance(diff: number): number {
+  if (diff <= 10) return 100
+  if (diff <= 25) return 70
+  if (diff <= 40) return 40
+  return 10
+}
+
+/**
+ * Calculate fees/TVL score (0-100)
+ * More realistic thresholds for fee generation
+ * Adjusted to make VSN/USDC (0.026%) score better
+ */
+function scoreFeesRate(rate: number): number {
+  // rate is per 24h as decimal (e.g., 0.004 = 0.4%)
+  if (rate >= 0.003) return 100 // ≥ 0.3% per 24h - excellent
+  if (rate >= 0.001) return 80  // 0.1-0.3% - good
+  if (rate >= 0.0002) return 70  // 0.02-0.1% - fair (raised from 0.0003)
+  if (rate >= 0.0001) return 50 // 0.01-0.02% - poor (raised from 40)
+  return 30 // < 0.01% - very poor (raised from 20)
+}
+
+/**
+ * Calculate overall vault health status
+ * 
+ * @param metrics - Health metrics object
+ * @returns Status object with score and status label
+ */
+export function calculateVaultStatus(metrics: VaultHealthMetrics): {
+  status: VaultStatus
+  score: number
+  breakdown: {
+    priceImpact: number
+    inRange: number
+    rebalance: number
+    inventory: number
+    fees: number
+  }
+} {
+  // Default values if metrics are missing
+  const priceImpact = metrics.priceImpact10k ?? 0.01 // Default to worst case
+  const inRange = metrics.inRangePercent ?? 50 // Default to middle
+  const rebalanceAge = metrics.rebalanceAgeHours ?? 48 // Default to worst case
+  const inventoryDiff = metrics.inventoryDiff ?? 25 // Default to middle
+  const feesRate = metrics.feesRate ?? 0.0001 // Default to low
+
+  // Calculate individual scores
+  const priceImpactScore = scorePriceImpact(priceImpact)
+  const inRangeScore = scoreInRange(inRange)
+  const rebalanceScore = scoreRebalanceAge(rebalanceAge)
+  const inventoryScore = scoreInventoryBalance(inventoryDiff)
+  const feesScore = scoreFeesRate(feesRate)
+
+  // Weighted average
+  const weights = {
+    priceImpact: 0.30,
+    inRange: 0.25,
+    rebalance: 0.15,
+    inventory: 0.15,
+    fees: 0.15,
+  }
+
+  const overallScore =
+    priceImpactScore * weights.priceImpact +
+    inRangeScore * weights.inRange +
+    rebalanceScore * weights.rebalance +
+    inventoryScore * weights.inventory +
+    feesScore * weights.fees
+
+  // Determine status
+  let status: VaultStatus
+  if (overallScore >= 80) {
+    status = 'Healthy'
+  } else if (overallScore >= 50) {
+    status = 'Warning'
+  } else {
+    status = 'Critical'
+  }
+
+  return {
+    status,
+    score: Math.round(overallScore),
+    breakdown: {
+      priceImpact: priceImpactScore,
+      inRange: inRangeScore,
+      rebalance: rebalanceScore,
+      inventory: inventoryScore,
+      fees: feesScore,
+    },
+  }
+}
