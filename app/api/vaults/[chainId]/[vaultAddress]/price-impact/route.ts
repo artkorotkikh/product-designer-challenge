@@ -20,15 +20,35 @@ export async function GET(
     const { chainId, vaultAddress } = params
     const { searchParams } = new URL(request.url)
 
-    // Get query parameters with defaults
-    const tradeSize = searchParams.get('tradeSize') || '5000'
-    const startDate = searchParams.get('startDate') || '2025-01-01T00:00:00Z'
-    const endDate = searchParams.get('endDate') || '2025-11-19T23:59:59Z'
+    // Get query parameters
+    const tradeSize = searchParams.get('tradeSize')
+    const startDate = searchParams.get('startDate')
+    const endDate = searchParams.get('endDate')
+
+    if (!tradeSize || !startDate || !endDate) {
+      return NextResponse.json(
+        {
+          error: 'Missing required parameters',
+          message: 'tradeSize, startDate, and endDate are required',
+        },
+        { status: 400 }
+      )
+    }
+
+    // Convert YYYY-MM-DD to ISO format for the API
+    const formatDateForAPI = (dateStr: string) => {
+      // If already in ISO format, use as is
+      if (dateStr.includes('T')) {
+        return dateStr
+      }
+      // Otherwise, convert YYYY-MM-DD to ISO format
+      return `${dateStr}T00:00:00Z`
+    }
 
     const queryParams = new URLSearchParams({
       usdValue: tradeSize, 
-      startDate,
-      endDate,
+      startDate: formatDateForAPI(startDate),
+      endDate: formatDateForAPI(endDate),
     })
 
     const url = `${INDEXER_API_URL}/indexer/private/${chainId}/${vaultAddress}/historical/price-impact?${queryParams}`

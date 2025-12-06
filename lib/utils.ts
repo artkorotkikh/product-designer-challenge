@@ -199,3 +199,26 @@ export function getTokenLogoUrl(address: string, chainId: number, symbol?: strin
   // Return empty to trigger fallback UI with symbol
   return ''
 }
+
+/**
+ * Format price from tick index or price value
+ * For very small prices, uses compact notation
+ */
+export function formatPriceFromTick(price: number | string): string {
+  const p = typeof price === 'string' ? parseFloat(price) : price
+  if (isNaN(p) || p === 0) return '0'
+  
+  // For very small prices, use scientific notation
+  if (Math.abs(p) > 0 && Math.abs(p) < 0.0001) {
+    return p.toExponential(2)
+  }
+  
+  // For normal prices, format with appropriate decimals
+  if (p >= 1) {
+    return p.toFixed(2)
+  } else if (p >= 0.01) {
+    return p.toFixed(4)
+  } else {
+    return p.toFixed(6)
+  }
+}

@@ -3,6 +3,7 @@
 import * as React from 'react'
 import { ArrowUpRight, ArrowDownRight } from 'lucide-react'
 import { cn, formatCompactNumber, formatNumber, getRelativeTime } from '@/lib/utils'
+import { TokenIcon } from '@/components/token-icon'
 
 interface VaultStatsProps {
   data: any
@@ -127,15 +128,135 @@ function StatWithChange({
 }
 
 export function VaultStats({ data, loading }: VaultStatsProps) {
+  // Extract token data early (available even during loading for icons/labels)
+  const chainId = data?.chainId || 1
+  const token0Symbol = data?.data?.tokens?.token0?.symbol || 'Token'
+  const token0 = data?.data?.tokens?.token0
+  const token1 = data?.data?.tokens?.token1
+
   if (loading) {
-    return <div className="w-full h-24 bg-muted/10 animate-pulse rounded-lg" />
+    return (
+      <div className="stats-container py-2">
+        {/* Status */}
+        <StatItem
+          label="Status"
+          indicator={<div className="w-2 h-2 rounded-full bg-muted-foreground/50 mr-1.5" />}
+          value={
+            <div className="w-16 h-10 bg-muted/50 animate-pulse rounded" />
+          }
+        />
+
+        <div className="stats-divider" />
+
+        {/* Last Rebalanced */}
+        <StatItem
+          label="Last rebalanced"
+          value={
+            <div className="w-20 h-10 bg-muted/50 animate-pulse rounded" />
+          }
+        />
+
+        <div className="stats-divider" />
+
+        {/* Token Price */}
+        <StatItem
+          label={`${token0Symbol} Price`}
+          value={
+            <div className="flex flex-col gap-1">
+              <div className="w-24 h-10 bg-muted/50 animate-pulse rounded" />
+              <div className="w-16 h-4 bg-muted/50 animate-pulse rounded" />
+            </div>
+          }
+        />
+
+        <div className="stats-divider" />
+
+        {/* Total Liquidity */}
+        <StatItem
+          label="Total Liquidity"
+          value={
+            <div className="flex flex-col gap-1">
+              <div className="w-24 h-10 bg-muted/50 animate-pulse rounded" />
+              <div className="w-16 h-4 bg-muted/50 animate-pulse rounded" />
+            </div>
+          }
+        />
+
+        <div className="stats-divider" />
+
+        {/* 30d Fees */}
+        <StatItem
+          label="30d Fees"
+          value={
+            <div className="flex flex-col gap-1">
+              <div className="w-24 h-10 bg-muted/50 animate-pulse rounded" />
+              <div className="w-16 h-4 bg-muted/50 animate-pulse rounded" />
+            </div>
+          }
+        />
+
+        <div className="stats-divider" />
+
+        {/* APY */}
+        <StatItem
+          label="APY"
+          value={
+            <div className="flex flex-col gap-1">
+              <div className="w-20 h-10 bg-muted/50 animate-pulse rounded" />
+              <div className="w-16 h-4 bg-muted/50 animate-pulse rounded" />
+            </div>
+          }
+        />
+
+        <div className="stats-divider lg:block hidden" />
+
+        {/* Inventory Balance */}
+        <div className="stats-item stats-inventory">
+          <div className="stats-header">
+            <span>Inventory Balance</span>
+          </div>
+          <div className="space-y-2">
+            {/* Values in USD */}
+            <div className="flex items-center gap-4 font-mono text-lg">
+              <div className="flex items-center gap-2">
+                {token0 ? (
+                  <TokenIcon 
+                    address={token0.address} 
+                    chainId={chainId} 
+                    symbol={token0.symbol} 
+                    className="w-4 h-4"
+                  />
+                ) : (
+                  <div className="w-4 h-4 rounded-full bg-muted/50 animate-pulse" />
+                )}
+                <div className="w-16 h-6 bg-muted/50 animate-pulse rounded" />
+              </div>
+              <div className="w-px h-4 bg-border/40" />
+              <div className="flex items-center gap-2">
+                {token1 ? (
+                  <TokenIcon 
+                    address={token1.address} 
+                    chainId={chainId} 
+                    symbol={token1.symbol} 
+                    className="w-4 h-4"
+                  />
+                ) : (
+                  <div className="w-4 h-4 rounded-full bg-muted/50 animate-pulse" />
+                )}
+                <div className="w-16 h-6 bg-muted/50 animate-pulse rounded" />
+              </div>
+            </div>
+            {/* Progress Bar */}
+            <div className="w-full h-2 bg-muted/50 animate-pulse rounded" />
+          </div>
+        </div>
+      </div>
+    )
   }
 
   if (!data) return null
 
-  // Data extraction
-  const token0 = data.data?.tokens?.token0
-  const token1 = data.data?.tokens?.token1
+  // Data extraction (token0, token1, chainId already extracted above)
   const tvl = data.data?.totalValueUSD || 0
   const fees30d = data.summary?.fees30d?.usdValue || 0
   const apy = data.apr || data.data?.apr || '21.3%'
@@ -283,16 +404,26 @@ export function VaultStats({ data, loading }: VaultStatsProps) {
           {/* Values in USD */}
           <div className="flex items-center gap-4 font-mono text-lg">
             <div className="flex items-center gap-2">
-              <div className="w-4 h-4 flex items-center justify-center">
-                <span className="text-emerald-500 text-xs">✻</span>
-              </div>
+              {token0 && (
+                <TokenIcon 
+                  address={token0.address} 
+                  chainId={chainId} 
+                  symbol={token0.symbol} 
+                  className="w-4 h-4"
+                />
+              )}
               <span>${formatCompactNumber(token0?.valueUSD || 0)}</span>
             </div>
             <div className="w-px h-4 bg-border/40" />
             <div className="flex items-center gap-2">
-              <div className="w-4 h-4 flex items-center justify-center">
-                <span className="text-blue-500 text-xs">⚡</span>
-              </div>
+              {token1 && (
+                <TokenIcon 
+                  address={token1.address} 
+                  chainId={chainId} 
+                  symbol={token1.symbol} 
+                  className="w-4 h-4"
+                />
+              )}
               <span>${formatCompactNumber(token1?.valueUSD || 0)}</span>
             </div>
           </div>

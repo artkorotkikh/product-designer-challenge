@@ -36,9 +36,16 @@ const CardTitle = React.forwardRef<
   <h3
     ref={ref}
     className={cn(
-      "text-2xl font-semibold leading-none tracking-tight",
+      "font-sans",
       className
     )}
+    style={{
+      fontSize: 'var(--card-title-font-size)',
+      fontWeight: 'var(--card-title-font-weight)',
+      lineHeight: 'var(--card-title-line-height)',
+      letterSpacing: 'var(--card-title-letter-spacing)',
+      color: 'var(--card-title-color)',
+    }}
     {...props}
   />
 ))
@@ -50,7 +57,14 @@ const CardDescription = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <p
     ref={ref}
-    className={cn("text-sm text-muted-foreground", className)}
+    className={cn("font-sans", className)}
+    style={{
+      fontSize: 'var(--card-description-font-size)',
+      fontWeight: 'var(--card-description-font-weight)',
+      lineHeight: 'var(--card-description-line-height)',
+      letterSpacing: 'var(--card-description-letter-spacing)',
+      color: 'var(--card-description-color)',
+    }}
     {...props}
   />
 ))

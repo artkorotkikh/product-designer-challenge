@@ -59,15 +59,18 @@ export async function fetchVaultDetails(
  *
  * @param chainId - The blockchain chain ID
  * @param vaultAddress - The vault contract address
+ * @param limit - Optional limit for number of ticks (may not be supported by API)
  * @returns Liquidity profile with tick data
  */
 export async function fetchLiquidityProfile(
   chainId: number,
-  vaultAddress: string
+  vaultAddress: string,
+  limit?: number
 ): Promise<LiquidityProfile> {
-  return apiFetch<LiquidityProfile>(
-    `${API_BASE}/${chainId}/${vaultAddress}/liquidity`
-  )
+  const url = limit 
+    ? `${API_BASE}/${chainId}/${vaultAddress}/liquidity?limit=${limit}`
+    : `${API_BASE}/${chainId}/${vaultAddress}/liquidity`
+  return apiFetch<LiquidityProfile>(url)
 }
 
 /**

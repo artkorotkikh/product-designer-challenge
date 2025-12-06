@@ -17,8 +17,18 @@ export async function GET(
 ) {
   try {
     const { chainId, vaultAddress } = params
+    const { searchParams } = new URL(request.url)
+    
+    // Check if client wants to limit data (though API may not support this)
+    const limit = searchParams.get('limit')
+    
+    // Build query string - API may support limit or other params
+    const queryParams = new URLSearchParams({ refresh: 'false' })
+    if (limit) {
+      queryParams.append('limit', limit)
+    }
 
-    const url = `${INDEXER_API_URL}/indexer/private/${chainId}/${vaultAddress}/live/liquidity-profile?refresh=false`
+    const url = `${INDEXER_API_URL}/indexer/private/${chainId}/${vaultAddress}/live/liquidity-profile?${queryParams}`
 
     const response = await fetch(url, {
       headers: {

@@ -8,10 +8,13 @@ import { Sidebar } from '@/components/sidebar'
 import { VaultCard } from '@/components/vault-card'
 import { TokenIcon } from '@/components/token-icon'
 import { VaultStats } from '@/components/vault-stats'
-import { TEST_VAULTS } from '@/lib/api'
+import { LiquidityDistributionChart } from '@/components/liquidity-distribution-chart'
+import { PriceImpactTable } from '@/components/price-impact-table'
+import { TEST_VAULTS, fetchLiquidityProfile } from '@/lib/api'
 import { UserMenu } from '@/components/user-menu'
 import { ExternalLink, Copy, CheckCircle2, Hexagon, Globe, Layers, CircleDollarSign } from 'lucide-react'
 import { cn, formatAddress } from '@/lib/utils'
+import type { LiquidityProfile } from '@/lib/types'
 
 // Simple Chain Info Helper
 const getChainInfo = (chainId: number) => {
@@ -37,7 +40,9 @@ function DashboardContent() {
   
   // Vault Data State
   const [vaultData, setVaultData] = React.useState<any | null>(null)
+  const [liquidityData, setLiquidityData] = React.useState<LiquidityProfile | null>(null)
   const [loading, setLoading] = React.useState(true)
+  const [liquidityLoading, setLiquidityLoading] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
 
   // Handle default redirect - only run once
@@ -76,6 +81,36 @@ function DashboardContent() {
     }
 
     fetchData()
+  }, [chainId, address])
+
+  // Fetch Liquidity Data
+  React.useEffect(() => {
+    if (!chainId || !address) {
+      setLiquidityData(null)
+      return
+    }
+
+    async function fetchLiquidity() {
+      try {
+        setLiquidityLoading(true)
+        console.log(`Fetching liquidity for chainId: ${chainId}, address: ${address}`)
+        const data = await fetchLiquidityProfile(Number(chainId), address as string)
+        console.log('Liquidity profile response:', data)
+        setLiquidityData(data)
+      } catch (error) {
+        console.error('Failed to fetch liquidity data', error)
+        // Log more details about the error
+        if (error instanceof Error) {
+          console.error('Error message:', error.message)
+          console.error('Error stack:', error.stack)
+        }
+        setLiquidityData(null)
+      } finally {
+        setLiquidityLoading(false)
+      }
+    }
+
+    fetchLiquidity()
   }, [chainId, address])
 
   // Helper to copy address
@@ -180,16 +215,17 @@ function DashboardContent() {
             {/* Stats Row */}
             <VaultStats data={vaultData} loading={loading} />
 
-            {/* Placeholder Charts */}
+            {/* Charts */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 pb-12">
-              <div className="h-[300px] rounded-xl border border-border/40 bg-card/50 p-6 flex flex-col items-center justify-center text-muted-foreground border-dashed">
-                <p>Liquidity Distribution Chart</p>
-                <p className="text-xs opacity-50">(Coming Soon)</p>
-              </div>
-              <div className="h-[300px] rounded-xl border border-border/40 bg-card/50 p-6 flex flex-col items-center justify-center text-muted-foreground border-dashed">
-                 <p>Price Impact Chart</p>
-                 <p className="text-xs opacity-50">(Coming Soon)</p>
-              </div>
+              <LiquidityDistributionChart 
+                data={liquidityData} 
+                loading={liquidityLoading}
+              />
+              <PriceImpactTable
+                chainId={chainId ? Number(chainId) : null}
+                vaultAddress={address}
+                vaultData={vaultData}
+              />
         </div>
           </div>
         </div>
