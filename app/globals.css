@@ -48,6 +48,28 @@
     --arrakis-blue: 218 100% 50%;
     --arrakis-dark: 12 12% 8%;
 
+    /* Stats Component */
+    --stats-container-gap-x: 1.5rem; /* 16px */
+    --stats-container-gap-y: 1.5rem; /* 24px */
+    --stats-header-height: 1rem; /* 16px */
+    --stats-header-font-size: 0.75rem; /* 12px */
+    --stats-header-color: var(--muted-foreground);
+    --stats-value-height: 2.5rem; /* 40px */
+    --stats-value-font-size: 1.5rem; /* 24px */
+    --stats-value-line-height: 1;
+    --stats-divider-width: 1px;
+    --stats-divider-height: 3rem; /* 48px */
+    --stats-divider-color: hsl(var(--border) / 0.4);
+    --stats-details-gap: 0.25rem; /* 4px */
+    --stats-details-font-size: 0.75rem; /* 12px */
+    --stats-details-icon-size: 0.75rem; /* 12px */
+    --stats-inventory-max-width: 12.5rem; /* 200px */
+
+    /* Status Colors */
+    --stats-status-healthy: 142 76% 36%; /* emerald-500 */
+    --stats-change-positive: 142 76% 36%; /* emerald-500 */
+    --stats-change-negative: 0 100% 50%; /* red-500 */
+
     --radius: 0.5rem;
   }
 }
@@ -83,4 +105,63 @@
 [data-rk] {
   --rk-colors-accentColor: #fea000;
   --rk-colors-accentColorForeground: #171312;
+}
+
+/* Stats Component Utilities */
+@layer components {
+  .stats-container {
+    @apply flex flex-wrap items-start;
+    gap: var(--stats-container-gap-y) var(--stats-container-gap-x);
+  }
+
+  .stats-item {
+    @apply flex flex-col;
+    gap: 0.25rem;
+  }
+
+  .stats-header {
+    height: var(--stats-header-height);
+    @apply flex items-center;
+    font-size: var(--stats-header-font-size);
+    color: hsl(var(--stats-header-color));
+    @apply font-sans;
+  }
+
+  .stats-value-container {
+    height: var(--stats-value-height);
+    @apply flex items-start;
+  }
+
+  .stats-number {
+    font-size: var(--stats-value-font-size);
+    line-height: var(--stats-value-line-height);
+    @apply font-mono font-normal;
+  }
+
+  .stats-details {
+    @apply flex items-center;
+    gap: var(--stats-details-gap);
+    margin-top: 0.25rem;
+    font-size: var(--stats-details-font-size);
+    @apply font-sans;
+  }
+
+  .stats-details-icon {
+    width: var(--stats-details-icon-size);
+    height: var(--stats-details-icon-size);
+  }
+
+  .stats-divider {
+    width: var(--stats-divider-width);
+    height: var(--stats-divider-height);
+    background-color: var(--stats-divider-color);
+    @apply self-stretch;
+    @apply hidden md:block;
+  }
+
+  .stats-inventory {
+    min-width: 200px;
+    max-width: 260px;
+    @apply flex-shrink-0;
+  }
 }

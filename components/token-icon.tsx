@@ -18,11 +18,11 @@ export function TokenIcon({ address, chainId, symbol, className }: TokenIconProp
   const logoUrl = React.useMemo(() => {
     try {
       const checksumAddress = getAddress(address)
-      return getTokenLogoUrl(checksumAddress, chainId)
+      return getTokenLogoUrl(checksumAddress, chainId, symbol)
     } catch {
-      return ''
+      return getTokenLogoUrl(address, chainId, symbol)
     }
-  }, [address, chainId])
+  }, [address, chainId, symbol])
 
   if (error || !logoUrl) {
     return (

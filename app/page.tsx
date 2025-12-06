@@ -3,12 +3,13 @@
 import * as React from 'react'
 import Image from 'next/image'
 import { useSearchParams, useRouter } from 'next/navigation'
+import { Suspense } from 'react'
 import { Sidebar } from '@/components/sidebar'
 import { VaultCard } from '@/components/vault-card'
 import { TokenIcon } from '@/components/token-icon'
 import { VaultStats } from '@/components/vault-stats'
 import { TEST_VAULTS } from '@/lib/api'
-import { ConnectButton } from '@rainbow-me/rainbowkit'
+import { UserMenu } from '@/components/user-menu'
 import { ExternalLink, Copy, CheckCircle2, Hexagon, Globe, Layers, CircleDollarSign } from 'lucide-react'
 import { cn, formatAddress } from '@/lib/utils'
 
@@ -25,7 +26,7 @@ const getChainInfo = (chainId: number) => {
   }
 }
 
-export default function DashboardPage() {
+function DashboardContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const chainId = searchParams.get('chainId')
@@ -36,30 +37,39 @@ export default function DashboardPage() {
   
   // Vault Data State
   const [vaultData, setVaultData] = React.useState<any | null>(null)
-  const [loading, setLoading] = React.useState(false)
+  const [loading, setLoading] = React.useState(true)
+  const [error, setError] = React.useState<string | null>(null)
 
-  // Handle default redirect
+  // Handle default redirect - only run once
   React.useEffect(() => {
     if ((!chainId || !address) && TEST_VAULTS.length > 0) {
       const defaultVault = TEST_VAULTS[0]
       router.replace(`/?chainId=${defaultVault.chainId}&address=${defaultVault.address}`)
     }
-  }, [chainId, address, router])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   // Fetch Vault Data
   React.useEffect(() => {
-    if (!chainId || !address) return
+    if (!chainId || !address) {
+      setLoading(false)
+      return
+    }
 
     async function fetchData() {
       try {
         setLoading(true)
+        setError(null)
         const response = await fetch(`/api/vaults/${chainId}/${address}`)
         if (response.ok) {
           const data = await response.json()
           setVaultData(data)
+        } else {
+          setError(`Failed to load vault data: ${response.statusText}`)
         }
       } catch (error) {
         console.error('Failed to fetch vault data', error)
+        setError(error instanceof Error ? error.message : 'Failed to load vault data')
       } finally {
         setLoading(false)
       }
@@ -97,7 +107,7 @@ export default function DashboardPage() {
       >
         {/* Scrollable Content Area */}
         <div className="flex-1 overflow-y-auto">
-          {/* Header */}
+      {/* Header */}
           <header className="flex h-20 items-center justify-between px-[72px] pt-8 pb-4 bg-background">
             <div className="flex items-center gap-6">
               {/* Token Pair Info */}
@@ -112,7 +122,7 @@ export default function DashboardPage() {
                         address={token0.address} 
                         chainId={Number(chainId)} 
                         symbol={token0.symbol} 
-                        className="w-8 h-8 z-0"
+                        className="w-10 h-10 z-0"
                       />
                     )}
                     {token1 && (
@@ -120,15 +130,15 @@ export default function DashboardPage() {
                         address={token1.address} 
                         chainId={Number(chainId)} 
                         symbol={token1.symbol} 
-                        className="w-8 h-8 z-10"
+                        className="w-10 h-10 z-10"
                       />
                     )}
                   </div>
 
                   {/* Pair Name */}
                   <h1 className="text-2xl font-medium tracking-tight text-foreground">
-                    {vaultData?.tokenPair || 'Loading...'}
-                  </h1>
+                    {vaultData?.tokenPair || error || 'Loading...'}
+                </h1>
 
                   {/* Metadata Separator */}
                   <div className="flex items-center gap-4 ml-2">
@@ -155,16 +165,16 @@ export default function DashboardPage() {
                       {feeTier ? `${feeTier}%` : '0.05%'}
                     </span>
                   </div>
-                </div>
+              </div>
               )}
             </div>
 
             <div className="flex items-center gap-4">
-              <ConnectButton />
-            </div>
-          </header>
+              <UserMenu />
+        </div>
+      </header>
 
-          {/* Main Content */}
+      {/* Main Content */}
           <div className="px-[72px] py-6 space-y-8">
             
             {/* Stats Row */}
@@ -180,7 +190,7 @@ export default function DashboardPage() {
                  <p>Price Impact Chart</p>
                  <p className="text-xs opacity-50">(Coming Soon)</p>
               </div>
-            </div>
+        </div>
           </div>
         </div>
 
@@ -203,5 +213,17 @@ export default function DashboardPage() {
         </footer>
       </main>
     </div>
+  )
+}
+
+export default function DashboardPage() {
+  return (
+    <Suspense fallback={
+      <div className="flex min-h-screen bg-background items-center justify-center">
+        <div className="text-muted-foreground">Loading...</div>
+      </div>
+    }>
+      <DashboardContent />
+    </Suspense>
   )
 }

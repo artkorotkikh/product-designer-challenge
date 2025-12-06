@@ -1,5 +1,6 @@
 import { type ClassValue, clsx } from "clsx"
 import { twMerge } from "tailwind-merge"
+import { getAddress } from "viem"
 
 /**
  * Utility function to merge Tailwind CSS classes
@@ -37,6 +38,69 @@ export function formatNumber(num: number | string, decimals: number = 2): string
 }
 
 /**
+ * Format large numbers in compact notation (e.g., 26.8M, 1.2k, 500)
+ * Automatically chooses appropriate unit and rounds to 1 decimal place
+ */
+export function formatCompactNumber(num: number | string): string {
+  const n = typeof num === 'string' ? parseFloat(num) : num
+  if (isNaN(n)) return '0'
+  
+  const absNum = Math.abs(n)
+  
+  // Billions
+  if (absNum >= 1_000_000_000) {
+    return `${(n / 1_000_000_000).toFixed(1)}B`
+  }
+  
+  // Millions
+  if (absNum >= 1_000_000) {
+    return `${(n / 1_000_000).toFixed(1)}M`
+  }
+  
+  // Thousands
+  if (absNum >= 1_000) {
+    return `${(n / 1_000).toFixed(1)}k`
+  }
+  
+  // Less than 1000, show with appropriate decimals
+  if (absNum >= 1) {
+    return n.toFixed(1)
+  }
+  
+  // Very small numbers - return formatted string for scientific notation
+  if (absNum > 0 && absNum < 1) {
+    const sci = formatScientificNotation(n)
+    return sci.display
+  }
+  
+  return '0'
+}
+
+/**
+ * Format very small or very large numbers in scientific notation
+ * Returns an object with mantissa and exponent for rendering
+ */
+export function formatScientificNotation(num: number | string): {
+  mantissa: string
+  exponent: number
+  display: string
+} {
+  const n = typeof num === 'string' ? parseFloat(num) : num
+  if (isNaN(n) || n === 0) {
+    return { mantissa: '0', exponent: 0, display: '0' }
+  }
+  
+  const [mantissa, exponent] = n.toExponential(1).split('e')
+  const exp = parseInt(exponent, 10)
+  
+  return {
+    mantissa: parseFloat(mantissa).toString(),
+    exponent: exp,
+    display: `${parseFloat(mantissa)} × 10${exp >= 0 ? '⁺' : '⁻'}${Math.abs(exp)}`
+  }
+}
+
+/**
  * Format a date string to a readable format
  */
 export function formatDate(dateString: string): string {
@@ -69,9 +133,49 @@ export function getRelativeTime(dateString: string): string {
 }
 
 /**
- * Get Token Logo URL from TrustWallet Assets
+ * Known token addresses for logo mapping
+ * Maps common token symbols/addresses to known logo sources
  */
-export function getTokenLogoUrl(address: string, chainId: number): string {
+const KNOWN_TOKEN_LOGOS: Record<string, string> = {
+  // Ethereum native token
+  'ETH': 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/info/logo.png',
+  '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee': 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/info/logo.png',
+  'WETH': 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/assets/0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2/logo.png',
+  
+  // Common stablecoins and major tokens
+  'USDC': 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/assets/0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48/logo.png',
+  'USDT': 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/assets/0xdAC17F958D2ee523a2206206994597C13D831ec7/logo.png',
+  'DAI': 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/assets/0x6B175474E89094C44Da98b954EedeAC495271d0F/logo.png',
+  'WBTC': 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/assets/0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599/logo.png',
+  
+  // Token logo URLs - using CoinMarketCap
+  'VSN': 'https://s2.coinmarketcap.com/static/img/coins/64x64/37322.png', // Vision Network
+  'FOLKS': 'https://assets.coingecko.com/coins/images/25392/large/FOLKS.png', // Folks Finance
+  'WOO': 'https://s2.coinmarketcap.com/static/img/coins/64x64/7501.png', // WOO Network
+  
+  // Ethereum Mainnet specific addresses
+  '0x699ccf919c1dfdfa4c374292f42cadc9899bf753': 'https://s2.coinmarketcap.com/static/img/coins/64x64/37322.png', // VSN token address
+}
+
+/**
+ * Get Token Logo URL - tries multiple sources
+ * Priority: Known tokens > TrustWallet > Return empty for fallback UI
+ */
+export function getTokenLogoUrl(address: string, chainId: number, symbol?: string): string {
+  // Try known token mapping first (by symbol or address)
+  if (symbol) {
+    const symbolUpper = symbol.toUpperCase()
+    if (KNOWN_TOKEN_LOGOS[symbolUpper]) {
+      return KNOWN_TOKEN_LOGOS[symbolUpper]
+    }
+  }
+  
+  const addressLower = address.toLowerCase()
+  if (KNOWN_TOKEN_LOGOS[addressLower]) {
+    return KNOWN_TOKEN_LOGOS[addressLower]
+  }
+
+  // Try TrustWallet Assets
   const chainMap: Record<number, string> = {
     1: 'ethereum',
     56: 'smartchain',
@@ -82,9 +186,16 @@ export function getTokenLogoUrl(address: string, chainId: number): string {
   }
 
   const chainName = chainMap[chainId]
-  if (!chainName) return ''
+  if (chainName) {
+    try {
+      const checksumAddress = getAddress(address)
+      return `https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/${chainName}/assets/${checksumAddress}/logo.png`
+    } catch {
+      // If checksumming fails, try with original address
+      return `https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/${chainName}/assets/${address}/logo.png`
+    }
+  }
 
-  // Note: We rely on the component to handle checksumming if needed, 
-  // but ideally the input address should be checksummed for TrustWallet URLs.
-  return `https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/${chainName}/assets/${address}/logo.png`
+  // Return empty to trigger fallback UI with symbol
+  return ''
 }
