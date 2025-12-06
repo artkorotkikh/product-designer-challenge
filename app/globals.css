@@ -4,33 +4,49 @@
 
 @layer base {
   :root {
-    --background: 222 47% 5%;
-    --foreground: 210 40% 98%;
+    /* backgroundPage: #171312 */
+    --background: 12 12% 8%;
+    /* foregroundTextPrimary: #ffffff */
+    --foreground: 0 0% 100%;
 
-    --card: 222 47% 5%;
-    --card-foreground: 210 40% 98%;
+    /* Using backgroundPage for card base */
+    --card: 12 12% 8%;
+    --card-foreground: 0 0% 100%;
 
-    --popover: 222 47% 5%;
-    --popover-foreground: 210 40% 98%;
+    /* backgroundTooltip: #2e2a2a */
+    --popover: 0 5% 17%;
+    --popover-foreground: 0 0% 100%;
 
-    --primary: 27 82% 51%;
-    --primary-foreground: 0 0% 100%;
+    /* foregroundBrand: #fea000 */
+    --primary: 38 100% 50%;
+    --primary-foreground: 12 12% 8%;
 
-    --secondary: 217.2 32.6% 17.5%;
-    --secondary-foreground: 210 40% 98%;
+    /* backgroundTooltip for secondary/muted surfaces */
+    --secondary: 0 5% 17%;
+    --secondary-foreground: 0 0% 100%;
 
-    --muted: 217.2 32.6% 17.5%;
-    --muted-foreground: 215 20.2% 65.1%;
+    --muted: 0 5% 17%;
+    /* foregroundTextSecondary: #9f9c97 */
+    --muted-foreground: 38 5% 61%;
 
-    --accent: 217.2 32.6% 17.5%;
-    --accent-foreground: 210 40% 98%;
+    --accent: 0 5% 17%;
+    --accent-foreground: 0 0% 100%;
 
-    --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 210 40% 98%;
+    /* accessoryBad: #ff0000 */
+    --destructive: 0 100% 50%;
+    --destructive-foreground: 0 0% 100%;
 
-    --border: 217.2 32.6% 17.5%;
-    --input: 217.2 32.6% 17.5%;
-    --ring: 27 82% 51%;
+    /* strokeChartBackgroundLines: #433f3e */
+    --border: 12 4% 25%;
+    --input: 12 4% 25%;
+    --ring: 38 100% 50%;
+
+    /* Arrakis Specific */
+    --arrakis-orange: 38 100% 50%;
+    --arrakis-orange-hover: 38 100% 60%;
+    /* foregroundBrandComplimentary: #005efe */
+    --arrakis-blue: 218 100% 50%;
+    --arrakis-dark: 12 12% 8%;
 
     --radius: 0.5rem;
   }
@@ -41,9 +57,7 @@
     @apply border-border;
   }
   body {
-    @apply bg-arrakis-dark text-foreground;
-    background: linear-gradient(135deg, #0A0E1A 0%, #0f1419 50%, #0A0E1A 100%);
-    background-attachment: fixed;
+    @apply bg-background text-foreground;
   }
 }
 
@@ -54,19 +68,19 @@
 }
 
 ::-webkit-scrollbar-track {
-  @apply bg-slate-900;
+  @apply bg-background;
 }
 
 ::-webkit-scrollbar-thumb {
-  @apply bg-slate-700 rounded-md;
+  @apply bg-muted rounded-md border-2 border-background;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  @apply bg-slate-600;
+  @apply bg-muted-foreground/50;
 }
 
 /* RainbowKit overrides for Arrakis branding */
 [data-rk] {
-  --rk-colors-accentColor: #EC9117;
-  --rk-colors-accentColorForeground: white;
+  --rk-colors-accentColor: #fea000;
+  --rk-colors-accentColorForeground: #171312;
 }

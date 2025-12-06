@@ -1,215 +1,207 @@
-/**
- * Home Page - Arrakis Vault Dashboard
- *
- * This is the main starter page for the product designer challenge.
- * It displays 5 test vaults with their data fetched from the API.
- *
- * CHALLENGE INSTRUCTIONS:
- * =======================
- * This page is intentionally simple to give you a starting point.
- * Your task is to create a beautiful, functional dashboard that:
- *
- * 1. Displays vault data in an intuitive way
- * 2. Uses charts to visualize liquidity, inventory, fees, etc.
- * 3. Implements the Arrakis design system (colors, typography, spacing)
- * 4. Provides excellent UX with loading states, animations, and responsiveness
- *
- * GETTING STARTED:
- * ================
- * - Check out lib/api.ts for all available API functions
- * - Check out lib/types.ts for TypeScript types
- * - Use components from components/ui/ (shadcn/ui)
- * - Use Recharts for data visualization
- * - Reference the Arrakis colors in tailwind.config.ts
- *
- * TIPS:
- * =====
- * - Feel free to create new components in components/
- * - You can create new pages in app/
- * - You can modify existing components
- * - Don't worry about the RainbowKit wallet - it's in mock mode for testing
- *
- * Good luck! 🚀
- */
-
 'use client'
 
 import * as React from 'react'
 import Image from 'next/image'
-import { ConnectButton } from '@rainbow-me/rainbowkit'
+import { useSearchParams, useRouter } from 'next/navigation'
+import { Sidebar } from '@/components/sidebar'
 import { VaultCard } from '@/components/vault-card'
+import { TokenIcon } from '@/components/token-icon'
+import { VaultStats } from '@/components/vault-stats'
 import { TEST_VAULTS } from '@/lib/api'
+import { ConnectButton } from '@rainbow-me/rainbowkit'
+import { ExternalLink, Copy, CheckCircle2, Hexagon, Globe, Layers, CircleDollarSign } from 'lucide-react'
+import { cn, formatAddress } from '@/lib/utils'
 
-export default function Home() {
+// Simple Chain Info Helper
+const getChainInfo = (chainId: number) => {
+  switch (chainId) {
+    case 1: return { name: 'Ethereum', color: 'text-indigo-400' }
+    case 56: return { name: 'BSC', color: 'text-yellow-400' }
+    case 8453: return { name: 'Base', color: 'text-blue-400' }
+    case 137: return { name: 'Polygon', color: 'text-purple-400' }
+    case 42161: return { name: 'Arbitrum', color: 'text-blue-500' }
+    case 10: return { name: 'Optimism', color: 'text-red-500' }
+    default: return { name: `Chain ${chainId}`, color: 'text-muted-foreground' }
+  }
+}
+
+export default function DashboardPage() {
+  const router = useRouter()
+  const searchParams = useSearchParams()
+  const chainId = searchParams.get('chainId')
+  const address = searchParams.get('address')
+
+  const [collapsed, setCollapsed] = React.useState(true)
+  const [copied, setCopied] = React.useState(false)
+  
+  // Vault Data State
+  const [vaultData, setVaultData] = React.useState<any | null>(null)
+  const [loading, setLoading] = React.useState(false)
+
+  // Handle default redirect
+  React.useEffect(() => {
+    if ((!chainId || !address) && TEST_VAULTS.length > 0) {
+      const defaultVault = TEST_VAULTS[0]
+      router.replace(`/?chainId=${defaultVault.chainId}&address=${defaultVault.address}`)
+    }
+  }, [chainId, address, router])
+
+  // Fetch Vault Data
+  React.useEffect(() => {
+    if (!chainId || !address) return
+
+    async function fetchData() {
+      try {
+        setLoading(true)
+        const response = await fetch(`/api/vaults/${chainId}/${address}`)
+        if (response.ok) {
+          const data = await response.json()
+          setVaultData(data)
+        }
+      } catch (error) {
+        console.error('Failed to fetch vault data', error)
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    fetchData()
+  }, [chainId, address])
+
+  // Helper to copy address
+  const copyToClipboard = (text: string) => {
+    navigator.clipboard.writeText(text)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
+  }
+
+  if (!chainId || !address) {
+    return null
+  }
+
+  const chainInfo = getChainInfo(Number(chainId))
+  const token0 = vaultData?.data?.tokens?.token0
+  const token1 = vaultData?.data?.tokens?.token1
+  const feeTier = vaultData?.data?.pool?.feeTier
+  const protocolName = vaultData?.data?.pool?.name || 'v4' // Fallback/Mock if missing
+
   return (
-    <div className="min-h-screen">
-      {/* Header */}
-      <header className="border-b border-slate-800 bg-slate-900/50 backdrop-blur-sm sticky top-0 z-50">
-        <div className="container mx-auto px-4 py-4">
-          <div className="flex items-center justify-between">
-            {/* Logo and Title */}
-            <div className="flex items-center gap-3">
-              {/* Arrakis Logo */}
-              <Image
-                src="/assets/icons/logo.svg"
-                alt="Arrakis"
-                width={107}
-                height={20}
-                className="h-5 w-auto"
-              />
-              <div className="h-6 w-px bg-slate-700" />
-              <div>
-                <h1 className="text-lg font-semibold text-white">
-                  Vault Dashboard
-                </h1>
-                <p className="text-xs text-muted-foreground">
-                  Product Designer Challenge
-                </p>
+    <div className="flex min-h-screen bg-background font-sans text-foreground">
+      <Sidebar collapsed={collapsed} setCollapsed={setCollapsed} />
+      
+      <main 
+        className={cn(
+          "flex-1 flex flex-col min-h-screen transition-all duration-300 ease-in-out",
+          collapsed ? "ml-16" : "ml-64"
+        )}
+      >
+        {/* Scrollable Content Area */}
+        <div className="flex-1 overflow-y-auto">
+          {/* Header */}
+          <header className="flex h-20 items-center justify-between px-[72px] pt-8 pb-4 bg-background">
+            <div className="flex items-center gap-6">
+              {/* Token Pair Info */}
+              {loading ? (
+                <div className="h-8 w-48 bg-muted/50 animate-pulse rounded-md" />
+              ) : (
+                <div className="flex items-center gap-4">
+                  {/* Token Icons */}
+                  <div className="flex -space-x-2">
+                    {token0 && (
+                      <TokenIcon 
+                        address={token0.address} 
+                        chainId={Number(chainId)} 
+                        symbol={token0.symbol} 
+                        className="w-8 h-8 z-0"
+                      />
+                    )}
+                    {token1 && (
+                      <TokenIcon 
+                        address={token1.address} 
+                        chainId={Number(chainId)} 
+                        symbol={token1.symbol} 
+                        className="w-8 h-8 z-10"
+                      />
+                    )}
+                  </div>
+
+                  {/* Pair Name */}
+                  <h1 className="text-2xl font-medium tracking-tight text-foreground">
+                    {vaultData?.tokenPair || 'Loading...'}
+                  </h1>
+
+                  {/* Metadata Separator */}
+                  <div className="flex items-center gap-4 ml-2">
+                    {/* Chain */}
+                    <div className="flex items-center gap-1.5 px-2 py-1 rounded-full bg-secondary/30">
+                      <Globe className={cn("w-3.5 h-3.5", chainInfo.color)} />
+                      <span className="text-xs font-medium text-muted-foreground">
+                        {chainInfo.name}
+                      </span>
+                    </div>
+
+                    {/* Protocol Version */}
+                    <div className="flex items-center gap-1.5 px-2 py-1 rounded-full bg-secondary/30">
+                      <Layers className="w-3.5 h-3.5 text-pink-500" />
+                      <span className="text-xs font-medium text-muted-foreground">
+                        {protocolName.includes('v3') ? 'v3' : 'v4'}
+                      </span>
+                    </div>
+
+                    {/* Fee Tier - with vertical divider style */}
+                    <div className="h-4 w-px bg-border/60" />
+                    
+                    <span className="text-xs font-mono text-muted-foreground">
+                      {feeTier ? `${feeTier}%` : '0.05%'}
+                    </span>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="flex items-center gap-4">
+              <ConnectButton />
+            </div>
+          </header>
+
+          {/* Main Content */}
+          <div className="px-[72px] py-6 space-y-8">
+            
+            {/* Stats Row */}
+            <VaultStats data={vaultData} loading={loading} />
+
+            {/* Placeholder Charts */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 pb-12">
+              <div className="h-[300px] rounded-xl border border-border/40 bg-card/50 p-6 flex flex-col items-center justify-center text-muted-foreground border-dashed">
+                <p>Liquidity Distribution Chart</p>
+                <p className="text-xs opacity-50">(Coming Soon)</p>
+              </div>
+              <div className="h-[300px] rounded-xl border border-border/40 bg-card/50 p-6 flex flex-col items-center justify-center text-muted-foreground border-dashed">
+                 <p>Price Impact Chart</p>
+                 <p className="text-xs opacity-50">(Coming Soon)</p>
               </div>
             </div>
-
-            {/* Connect Wallet Button */}
-            <ConnectButton />
-          </div>
-        </div>
-      </header>
-
-      {/* Main Content */}
-      <main className="container mx-auto px-4 py-8">
-        {/* Welcome Section */}
-        <div className="mb-8">
-          <h2 className="text-3xl font-bold mb-2">Welcome!</h2>
-          <p className="text-muted-foreground max-w-2xl">
-            This is your starting point for the Arrakis product designer
-            challenge. Below you&apos;ll find 5 test vaults with live data from the
-            Arrakis API. Your task is to create a beautiful, functional
-            dashboard that showcases this data.
-          </p>
-        </div>
-
-        {/* Challenge Instructions Card */}
-        <div className="mb-8 p-6 rounded-lg border border-arrakis-orange bg-arrakis-orange/10">
-          <h3 className="text-xl font-semibold mb-3 text-arrakis-orange">
-            🎯 Your Challenge
-          </h3>
-          <div className="space-y-2 text-sm">
-            <p>
-              Design and implement a dashboard that displays vault analytics
-              including:
-            </p>
-            <ul className="list-disc list-inside space-y-1 ml-4 text-muted-foreground">
-              <li>Vault overview with key metrics (TVL, APR, volume)</li>
-              <li>Liquidity distribution charts across price ticks</li>
-              <li>Historical inventory ratio (token balance over time)</li>
-              <li>Price impact analysis</li>
-              <li>Fee earnings visualization</li>
-            </ul>
-            <p className="mt-4 text-arrakis-orange-hover">
-              💡 Check the{' '}
-              <code className="bg-slate-900 px-2 py-1 rounded">README.md</code>{' '}
-              for detailed requirements and API documentation.
-            </p>
           </div>
         </div>
 
-        {/* Vaults Grid */}
-        <div>
-          <h3 className="text-2xl font-bold mb-4">Test Vaults</h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {TEST_VAULTS.map(({ address, chainId }) => (
-              <VaultCard
-                key={`${chainId}-${address}`}
-                vaultAddress={address}
-                chainId={chainId}
-              />
-            ))}
+        {/* Slim Sticky Footer */}
+        <footer className="h-12 flex items-center justify-between px-[72px] border-t border-border/40 bg-background text-xs text-muted-foreground shrink-0 z-10">
+          <div className="flex items-center gap-2">
+             <Image
+                src="/assets/icons/logo.svg"
+                alt="Arrakis"
+                width={80}
+                height={16}
+                className="h-4 w-auto opacity-70 hover:opacity-100 transition-opacity"
+             />
           </div>
-        </div>
-
-        {/* Resources Section */}
-        <div className="mt-12 p-6 rounded-lg border border-slate-700 bg-slate-900/50">
-          <h3 className="text-xl font-semibold mb-4">📚 Resources</h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-            <div>
-              <h4 className="font-semibold text-arrakis-blue mb-2">
-                API Functions
-              </h4>
-              <ul className="space-y-1 text-muted-foreground">
-                <li>
-                  <code className="text-xs bg-slate-800 px-2 py-1 rounded">
-                    fetchVaultDetails()
-                  </code>
-                </li>
-                <li>
-                  <code className="text-xs bg-slate-800 px-2 py-1 rounded">
-                    fetchLiquidityProfile()
-                  </code>
-                </li>
-                <li>
-                  <code className="text-xs bg-slate-800 px-2 py-1 rounded">
-                    fetchInventoryRatio()
-                  </code>
-                </li>
-                <li>
-                  <code className="text-xs bg-slate-800 px-2 py-1 rounded">
-                    fetchPriceImpact()
-                  </code>
-                </li>
-                <li>
-                  <code className="text-xs bg-slate-800 px-2 py-1 rounded">
-                    fetchFeesHistory()
-                  </code>
-                </li>
-              </ul>
-            </div>
-            <div>
-              <h4 className="font-semibold text-arrakis-blue mb-2">
-                Key Files
-              </h4>
-              <ul className="space-y-1 text-muted-foreground">
-                <li>
-                  <code className="text-xs bg-slate-800 px-2 py-1 rounded">
-                    lib/api.ts
-                  </code>{' '}
-                  - API helpers
-                </li>
-                <li>
-                  <code className="text-xs bg-slate-800 px-2 py-1 rounded">
-                    lib/types.ts
-                  </code>{' '}
-                  - TypeScript types
-                </li>
-                <li>
-                  <code className="text-xs bg-slate-800 px-2 py-1 rounded">
-                    components/ui/
-                  </code>{' '}
-                  - UI components
-                </li>
-                <li>
-                  <code className="text-xs bg-slate-800 px-2 py-1 rounded">
-                    tailwind.config.ts
-                  </code>{' '}
-                  - Arrakis colors
-                </li>
-              </ul>
-            </div>
+          <div className="flex items-center gap-6">
+            <a href="#" className="hover:text-foreground transition-colors">About</a>
+            <a href="#" className="hover:text-foreground transition-colors">Help</a>
+            <span>@ 2025</span>
           </div>
-        </div>
+        </footer>
       </main>
-
-      {/* Footer */}
-      <footer className="border-t border-slate-800 mt-16 py-8">
-        <div className="container mx-auto px-4 text-center text-sm text-muted-foreground">
-          <p>
-            Built with Next.js 14, TypeScript, Tailwind CSS, and RainbowKit
-          </p>
-          <p className="mt-2">
-            Powered by{' '}
-            <span className="text-arrakis-orange font-semibold">Arrakis</span>{' '}
-            Indexer API
-          </p>
-        </div>
-      </footer>
     </div>
   )
 }

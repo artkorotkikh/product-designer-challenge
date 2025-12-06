@@ -23,14 +23,22 @@ import { Loader2, AlertCircle } from 'lucide-react'
 interface VaultCardProps {
   vaultAddress: string
   chainId: number
+  data?: any // Optional: pass data directly to avoid re-fetching
 }
 
-export function VaultCard({ vaultAddress, chainId }: VaultCardProps) {
-  const [data, setData] = React.useState<any | null>(null)
-  const [loading, setLoading] = React.useState(true)
+export function VaultCard({ vaultAddress, chainId, data: providedData }: VaultCardProps) {
+  const [fetchedData, setFetchedData] = React.useState<any | null>(null)
+  const [loading, setLoading] = React.useState(!providedData)
   const [error, setError] = React.useState<string | null>(null)
 
+  const data = providedData || fetchedData
+
   React.useEffect(() => {
+    if (providedData) {
+      setLoading(false)
+      return
+    }
+
     async function fetchData() {
       try {
         setLoading(true)
@@ -43,7 +51,7 @@ export function VaultCard({ vaultAddress, chainId }: VaultCardProps) {
         }
 
         const vaultData = await response.json()
-        setData(vaultData)
+        setFetchedData(vaultData)
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Unknown error occurred')
       } finally {
@@ -52,7 +60,7 @@ export function VaultCard({ vaultAddress, chainId }: VaultCardProps) {
     }
 
     fetchData()
-  }, [vaultAddress, chainId])
+  }, [vaultAddress, chainId, providedData])
 
   if (loading) {
     return (

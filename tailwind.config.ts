@@ -18,6 +18,10 @@ const config = {
       },
     },
     extend: {
+      fontFamily: {
+        sans: ["var(--font-geist-sans)"],
+        mono: ["var(--font-geist-mono)"],
+      },
       colors: {
         border: "hsl(var(--border))",
         input: "hsl(var(--input))",
@@ -54,10 +58,10 @@ const config = {
         },
         // Arrakis brand colors
         arrakis: {
-          orange: "#EC9117",
-          "orange-hover": "#F0B567",
-          blue: "#598CD8",
-          dark: "#0A0E1A",
+          orange: "hsl(var(--arrakis-orange))",
+          "orange-hover": "hsl(var(--arrakis-orange-hover))",
+          blue: "hsl(var(--arrakis-blue))",
+          dark: "hsl(var(--arrakis-dark))",
         },
       },
       borderRadius: {
