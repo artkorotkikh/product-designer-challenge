@@ -3,11 +3,13 @@
 import Link from 'next/link'
 import Image from 'next/image'
 import { useSearchParams } from 'next/navigation'
-import { LayoutDashboard, PieChart, Settings, ChevronRight, Hexagon, PanelLeftClose, PanelLeftOpen } from 'lucide-react'
-import { cn } from '@/lib/utils'
+import { ChevronRight, Hexagon, PanelLeftClose, PanelLeftOpen } from 'lucide-react'
+import { cn, formatCompactNumber } from '@/lib/utils'
 import { TEST_VAULTS, fetchVaultDetails } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { TokenIcon } from '@/components/token-icon'
+import { ChainIcon } from '@/components/chain-icon'
+import { ExchangeIcon } from '@/components/exchange-icon'
 import { useState, useEffect } from 'react'
 import type { VaultMetadata } from '@/lib/types'
 
@@ -94,50 +96,7 @@ export function Sidebar({ collapsed, setCollapsed }: SidebarProps) {
       </div>
 
       {/* Navigation */}
-      <div className="flex-1 overflow-y-auto py-6 px-2 space-y-6">
-        <div>
-          {!collapsed && (
-            <h3 className="px-4 text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
-              Platform
-            </h3>
-          )}
-          <nav className="space-y-1">
-            <Link
-              href="/"
-              className={cn(
-                "flex items-center gap-3 px-3 py-2 text-sm font-medium text-foreground hover:bg-accent/50 rounded-md transition-colors",
-                collapsed && "justify-center px-2"
-              )}
-              title={collapsed ? "Dashboard" : undefined}
-            >
-              <LayoutDashboard className="w-4 h-4 shrink-0" />
-              {!collapsed && <span>Dashboard</span>}
-            </Link>
-            <button
-              disabled
-              className={cn(
-                "w-full flex items-center gap-3 px-3 py-2 text-sm font-medium text-muted-foreground/50 cursor-not-allowed",
-                collapsed && "justify-center px-2"
-              )}
-              title={collapsed ? "Analytics" : undefined}
-            >
-              <PieChart className="w-4 h-4 shrink-0" />
-              {!collapsed && <span>Analytics</span>}
-            </button>
-            <button
-              disabled
-              className={cn(
-                "w-full flex items-center gap-3 px-3 py-2 text-sm font-medium text-muted-foreground/50 cursor-not-allowed",
-                collapsed && "justify-center px-2"
-              )}
-              title={collapsed ? "Settings" : undefined}
-            >
-              <Settings className="w-4 h-4 shrink-0" />
-              {!collapsed && <span>Settings</span>}
-            </button>
-          </nav>
-        </div>
-
+      <div className="flex-1 overflow-y-auto py-6 px-2">
         <div>
           {!collapsed && (
             <h3 className="px-4 text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
@@ -151,8 +110,36 @@ export function Sidebar({ collapsed, setCollapsed }: SidebarProps) {
                 Number(currentChainId) === vault.chainId
               
               // Handle both flat and nested response structures
-              const token0 = vault.metadata?.token0 || (vault.metadata as any)?.data?.tokens?.token0
-              const token1 = vault.metadata?.token1 || (vault.metadata as any)?.data?.tokens?.token1
+              const metadata = vault.metadata as any
+              const token0 = vault.metadata?.token0 || metadata?.data?.tokens?.token0
+              const token1 = vault.metadata?.token1 || metadata?.data?.tokens?.token1
+              const tvl = vault.metadata?.tvl || metadata?.data?.totalValueUSD
+              const feeTier = vault.metadata?.feeTier || metadata?.data?.pool?.feeTier
+              const exchangeRaw = vault.metadata?.exchange || metadata?.data?.pool?.name
+              
+              // Extract exchange name from protocol name (similar to header logic)
+              const getExchangeName = (protocol: string | undefined) => {
+                if (!protocol) return null
+                const lower = protocol.toLowerCase().trim()
+                if (lower.includes('uniswap')) return 'Uniswap'
+                if (lower.includes('aerodrome')) return 'Aerodrome'
+                if (lower.includes('pancake')) return 'PancakeSwap'
+                return protocol
+              }
+              
+              const exchangeName = getExchangeName(exchangeRaw)
+              
+              const pairName = token0 && token1 
+                ? `${token0.symbol}/${token1.symbol}` 
+                : vault.metadata?.name || `${vault.address.slice(0, 6)}...${vault.address.slice(-4)}`
+              
+              // Safely parse TVL - handle both string and number
+              const tvlValue = tvl 
+                ? (typeof tvl === 'string' ? parseFloat(tvl) : tvl)
+                : null
+              const formattedTvl = tvlValue && !isNaN(tvlValue) 
+                ? formatCompactNumber(tvlValue) 
+                : null
               
               return (
                 <Link
@@ -165,7 +152,7 @@ export function Sidebar({ collapsed, setCollapsed }: SidebarProps) {
                       : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
                     collapsed && "justify-center px-2"
                   )}
-                  title={collapsed ? (vault.metadata?.name || vault.address) : undefined}
+                  title={collapsed ? pairName : undefined}
                 >
                   {/* Token Pair Icons */}
                   <div className="flex items-center shrink-0">
@@ -196,31 +183,44 @@ export function Sidebar({ collapsed, setCollapsed }: SidebarProps) {
                       <Hexagon className={cn("w-4 h-4", isActive ? "text-primary" : "text-muted-foreground")} />
                     )}
                   </div>
+                  
                   {!collapsed && (
                     <>
-                      <span className="truncate flex-1 min-w-0">
-                        {vault.metadata?.name || `${vault.address.slice(0, 6)}...${vault.address.slice(-4)}`}
-                      </span>
-                      {isActive && <ChevronRight className="w-3 h-3 opacity-50 ml-auto shrink-0" />}
+                      <div className="flex-1 min-w-0 flex flex-col gap-0.5">
+                        <div className="flex items-center gap-2">
+                          <span className="truncate font-medium text-foreground">
+                            {pairName}
+                          </span>
+                          {formattedTvl && (
+                            <span className="text-xs text-muted-foreground whitespace-nowrap">
+                              ${formattedTvl}
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-1.5 text-xs text-muted-foreground/70">
+                          <ChainIcon chainId={vault.chainId} className="w-3 h-3" />
+                          {exchangeName && (
+                            <>
+                              <span>•</span>
+                              <ExchangeIcon exchangeName={exchangeName} className="w-3 h-3" />
+                              <span>{exchangeName}</span>
+                            </>
+                          )}
+                          {feeTier && (
+                            <>
+                              {exchangeName && <span>•</span>}
+                              <span>{feeTier}%</span>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                      {isActive && <ChevronRight className="w-3 h-3 opacity-50 shrink-0" />}
                     </>
                   )}
                 </Link>
               )
             })}
           </nav>
-        </div>
-      </div>
-
-      {/* User Profile */}
-      <div className="p-4 border-t border-border/40">
-        <div className={cn("flex items-center gap-3 rounded-md", !collapsed && "px-2 py-2 bg-secondary/50")}>
-          <div className="w-8 h-8 shrink-0 rounded-full bg-gradient-to-br from-primary to-arrakis-blue" />
-          {!collapsed && (
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium truncate">Demo User</p>
-              <p className="text-xs text-muted-foreground truncate">Pro Plan</p>
-            </div>
-          )}
         </div>
       </div>
     </aside>

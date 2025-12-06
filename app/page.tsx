@@ -7,12 +7,15 @@ import { Suspense } from 'react'
 import { Sidebar } from '@/components/sidebar'
 import { VaultCard } from '@/components/vault-card'
 import { TokenIcon } from '@/components/token-icon'
+import { ChainIcon } from '@/components/chain-icon'
+import { ExchangeIcon } from '@/components/exchange-icon'
 import { VaultStats } from '@/components/vault-stats'
 import { LiquidityDistributionChart } from '@/components/liquidity-distribution-chart'
 import { PriceImpactTable } from '@/components/price-impact-table'
+import { PerformanceCharts } from '@/components/performance-charts'
 import { TEST_VAULTS, fetchLiquidityProfile } from '@/lib/api'
 import { UserMenu } from '@/components/user-menu'
-import { ExternalLink, Copy, CheckCircle2, Hexagon, Globe, Layers, CircleDollarSign } from 'lucide-react'
+import { ExternalLink, Copy, CheckCircle2, Hexagon, CircleDollarSign } from 'lucide-react'
 import { cn, formatAddress } from '@/lib/utils'
 import type { LiquidityProfile } from '@/lib/types'
 
@@ -129,6 +132,35 @@ function DashboardContent() {
   const token1 = vaultData?.data?.tokens?.token1
   const feeTier = vaultData?.data?.pool?.feeTier
   const protocolName = vaultData?.data?.pool?.name || 'v4' // Fallback/Mock if missing
+  
+  // Extract exchange name and version from protocolName
+  const getExchangeInfo = (protocol: string) => {
+    if (!protocol) return { name: 'Uniswap', version: 'v4' }
+    
+    const lower = protocol.toLowerCase().trim()
+    
+    // Check for Uniswap (v3 or v4)
+    if (lower.includes('uniswap')) {
+      const version = lower.includes('v3') ? 'v3' : 'v4'
+      return { name: 'Uniswap', version }
+    }
+    
+    // Check for Aerodrome
+    if (lower.includes('aerodrome')) {
+      return { name: 'Aerodrome', version: null }
+    }
+    
+    // Check for PancakeSwap (various spellings)
+    if (lower.includes('pancake')) {
+      return { name: 'PancakeSwap', version: null }
+    }
+    
+    // Default fallback - try to extract version
+    const version = lower.includes('v3') ? 'v3' : lower.includes('v4') ? 'v4' : null
+    return { name: protocol, version }
+  }
+  
+  const exchangeInfo = getExchangeInfo(protocolName)
 
   return (
     <div className="flex min-h-screen bg-background font-sans text-foreground">
@@ -179,17 +211,17 @@ function DashboardContent() {
                   <div className="flex items-center gap-4 ml-2">
                     {/* Chain */}
                     <div className="flex items-center gap-1.5 px-2 py-1 rounded-full bg-secondary/30">
-                      <Globe className={cn("w-3.5 h-3.5", chainInfo.color)} />
+                      <ChainIcon chainId={Number(chainId)} className="w-3.5 h-3.5" />
                       <span className="text-xs font-medium text-muted-foreground">
                         {chainInfo.name}
                       </span>
                     </div>
 
-                    {/* Protocol Version */}
+                    {/* Exchange/Protocol */}
                     <div className="flex items-center gap-1.5 px-2 py-1 rounded-full bg-secondary/30">
-                      <Layers className="w-3.5 h-3.5 text-pink-500" />
+                      <ExchangeIcon exchangeName={exchangeInfo.name} className="w-3.5 h-3.5" />
                       <span className="text-xs font-medium text-muted-foreground">
-                        {protocolName.includes('v3') ? 'v3' : 'v4'}
+                        {exchangeInfo.version || exchangeInfo.name}
                       </span>
                     </div>
 
@@ -226,7 +258,14 @@ function DashboardContent() {
                 vaultAddress={address}
                 vaultData={vaultData}
               />
-        </div>
+            </div>
+
+            {/* Performance Charts */}
+            <PerformanceCharts
+              chainId={chainId ? Number(chainId) : null}
+              vaultAddress={address}
+              vaultData={vaultData}
+            />
           </div>
         </div>
 

@@ -21,8 +21,20 @@ export async function GET(
     const { searchParams } = new URL(request.url)
 
     // Get query parameters with defaults
-    const startDate = searchParams.get('startDate') || '2025-01-01T00:00:00Z'
-    const endDate = searchParams.get('endDate') || '2025-11-19T23:59:59Z'
+    let startDate = searchParams.get('startDate') || '2025-01-01T00:00:00Z'
+    let endDate = searchParams.get('endDate') || '2025-11-19T23:59:59Z'
+
+    // Convert YYYY-MM-DD format to ISO format if needed
+    const formatDateForAPI = (dateStr: string) => {
+      if (dateStr.includes('T')) {
+        return dateStr // Already ISO format
+      }
+      // YYYY-MM-DD format, convert to ISO
+      return `${dateStr}T00:00:00Z`
+    }
+
+    startDate = formatDateForAPI(startDate)
+    endDate = formatDateForAPI(endDate)
 
     const queryParams = new URLSearchParams({
       startDate,
