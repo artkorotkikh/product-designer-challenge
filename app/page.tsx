@@ -248,7 +248,7 @@ function DashboardContent() {
             <VaultStats data={vaultData} loading={loading} />
 
             {/* Charts */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 pb-12">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               <LiquidityDistributionChart 
                 data={liquidityData} 
                 loading={liquidityLoading}
