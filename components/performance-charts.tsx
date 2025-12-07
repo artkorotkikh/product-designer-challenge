@@ -561,7 +561,7 @@ export function PerformanceCharts({ chainId, vaultAddress, vaultData }: Performa
             <div className="flex items-start justify-between gap-4">
               <div className="flex-1 min-w-0">
                 <CardTitle>Inventory Range</CardTitle>
-                <CardDescription className="mt-1">Vault's token composition changed over time.</CardDescription>
+                <CardDescription className="mt-1">Vault&apos;s token composition changed over time.</CardDescription>
               </div>
               {currentInventory && (
                 <div className="flex-shrink-0 text-right">
@@ -662,7 +662,7 @@ export function PerformanceCharts({ chainId, vaultAddress, vaultData }: Performa
         <Card className="border-border/40 bg-card/50">
           <CardHeader>
             <CardTitle>Volume over time</CardTitle>
-            <CardDescription>Trading volume interacting with this vault's liquidity.</CardDescription>
+            <CardDescription>Trading volume interacting with this vault&apos;s liquidity.</CardDescription>
           </CardHeader>
           <CardContent className="px-0 pr-5 pt-0 pb-0">
             {volumeData.length === 0 ? (

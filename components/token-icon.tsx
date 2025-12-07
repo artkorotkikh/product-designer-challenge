@@ -1,6 +1,7 @@
 'use client'
 
 import * as React from 'react'
+import Image from 'next/image'
 import { getAddress } from 'viem'
 import { getTokenLogoUrl } from '@/lib/utils'
 import { cn } from '@/lib/utils'
@@ -38,11 +39,14 @@ export function TokenIcon({ address, chainId, symbol, className }: TokenIconProp
   }
 
   return (
-    <img
+    <Image
       src={logoUrl}
       alt={symbol}
+      width={24}
+      height={24}
       className={cn("rounded-full border-2 border-background bg-background object-cover", className)}
       onError={() => setError(true)}
+      unoptimized
     />
   )
 }

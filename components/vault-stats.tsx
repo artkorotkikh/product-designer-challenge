@@ -429,6 +429,151 @@ export function VaultStats({ data, loading }: VaultStatsProps) {
   const token0 = data?.data?.tokens?.token0
   const token1 = data?.data?.tokens?.token1
 
+  // ALL HOOKS MUST BE CALLED BEFORE ANY CONDITIONAL RETURNS
+  // Compute values needed for hooks (safe defaults if data is missing)
+  const tvl = data?.data?.totalValueUSD || 0
+  const fees30d = data?.summary?.fees30d?.usdValue || 0
+  const apy = data?.apr || data?.data?.apr || '21.3%'
+  const apyValue = typeof apy === 'string' ? parseFloat(apy.replace('%', '')) : apy
+
+  // Calculations for price display
+  const token0Decimals = token0?.decimals || 18
+  const token1Decimals = token1?.decimals || 6
+  const token0RawAmount = token0?.amount ? parseFloat(token0.amount) : 0
+  const token1RawAmount = token1?.amount ? parseFloat(token1.amount) : 0
+  const token0ActualAmount = token0RawAmount / Math.pow(10, token0Decimals)
+  const token1ActualAmount = token1RawAmount / Math.pow(10, token1Decimals)
+  const token0Price = token0ActualAmount > 0 ? (token0?.valueUSD || 0) / token0ActualAmount : 0
+  const token1Price = token1ActualAmount > 0 ? (token1?.valueUSD || 0) / token1ActualAmount : 0
+  const stablecoinSymbols = ['USDT', 'USDC', 'DAI', 'BUSD', 'TUSD', 'USDP', 'FRAX', 'LUSD', 'GUSD', 'HUSD', 'SUSD', 'USDX', 'USDN', 'USDD', 'MIM', 'FEI', 'UST', 'EURT', 'EURS']
+  const isToken0Stablecoin = token0?.symbol && stablecoinSymbols.includes(token0.symbol.toUpperCase())
+  const isWETHPair = token0?.symbol?.toUpperCase() === 'WETH' && token1?.symbol?.toUpperCase() === 'WOO'
+  const displayPrice = isToken0Stablecoin || isWETHPair ? token1Price : token0Price
+
+  // State for historical data and calculated changes
+  const [historicalChanges, setHistoricalChanges] = React.useState<{
+    priceChange: number | null
+    tvlChange: number | null
+    feesChange: number | null
+    apyChange: number | null
+    loading: boolean
+  }>({
+    priceChange: null,
+    tvlChange: null,
+    feesChange: null,
+    apyChange: null,
+    loading: true,
+  })
+
+  // State for tooltip
+  const [showTooltip, setShowTooltip] = React.useState(false)
+  const statusRef = React.useRef<HTMLDivElement>(null)
+
+  // Calculate vault health status (useMemo must be before conditional returns)
+  const healthStatus = React.useMemo(() => {
+    if (!data) {
+      return { 
+        status: 'Healthy' as VaultStatus, 
+        score: 100, 
+        breakdown: {
+          priceImpact: 0,
+          inRange: 0,
+          rebalance: 0,
+          inventory: 0,
+          fees: 0,
+        }
+      }
+    }
+    // Extract price impact for $10k trade
+    const priceImpactBuy = data.summary?.priceImpact?.buy
+    let priceImpact10k: number | undefined
+    
+    if (priceImpactBuy) {
+      const impact = priceImpactBuy['10000'] || priceImpactBuy[10000]
+      if (impact !== undefined && impact !== null) {
+        priceImpact10k = Math.abs(parseFloat(impact.toString()))
+      }
+    }
+
+    const lastRebalancedDate = data.data?.general?.lastRebalanced
+    const rebalanceAgeHours = lastRebalancedDate
+      ? (Date.now() - new Date(lastRebalancedDate).getTime()) / (1000 * 60 * 60)
+      : undefined
+
+    const inventoryDiff = token0?.percentage !== undefined
+      ? Math.abs(token0.percentage - 50)
+      : undefined
+
+    const feesRate = tvl > 0 && fees30d > 0
+      ? (fees30d / tvl) / 30
+      : undefined
+
+    let inRangePercent: number | undefined
+    if (inventoryDiff !== undefined) {
+      if (inventoryDiff < 20) {
+        inRangePercent = 85
+      } else if (inventoryDiff < 30) {
+        inRangePercent = 65
+      } else {
+        inRangePercent = 35
+      }
+    }
+
+    return calculateVaultStatus({
+      priceImpact10k,
+      inRangePercent,
+      rebalanceAgeHours,
+      inventoryDiff,
+      feesRate,
+    })
+  }, [data, token0, tvl, fees30d])
+
+  // Get raw metrics for tooltip (useMemo must be before conditional returns)
+  const rawMetrics = React.useMemo(() => {
+    if (!data) return null
+    const priceImpactBuy = data.summary?.priceImpact?.buy
+    let priceImpact10k: number | undefined
+    
+    if (priceImpactBuy) {
+      const impact = priceImpactBuy['10000'] || priceImpactBuy[10000]
+      if (impact !== undefined && impact !== null) {
+        priceImpact10k = Math.abs(parseFloat(impact.toString()))
+      }
+    }
+
+    const lastRebalancedDate = data.data?.general?.lastRebalanced
+    const rebalanceAgeHours = lastRebalancedDate
+      ? (Date.now() - new Date(lastRebalancedDate).getTime()) / (1000 * 60 * 60)
+      : undefined
+
+    const inventoryDiff = token0?.percentage !== undefined
+      ? Math.abs(token0.percentage - 50)
+      : undefined
+
+    const feesRate = tvl > 0 && fees30d > 0
+      ? (fees30d / tvl) / 30
+      : undefined
+
+    let inRangePercent: number | undefined
+    if (inventoryDiff !== undefined) {
+      if (inventoryDiff < 20) {
+        inRangePercent = 85
+      } else if (inventoryDiff < 30) {
+        inRangePercent = 65
+      } else {
+        inRangePercent = 35
+      }
+    }
+
+    return {
+      priceImpact10k,
+      inRangePercent,
+      rebalanceAgeHours,
+      inventoryDiff,
+      feesRate,
+    }
+  }, [data, token0, tvl, fees30d])
+
   if (loading) {
     return (
       <div className="stats-container py-2">
@@ -552,40 +697,14 @@ export function VaultStats({ data, loading }: VaultStatsProps) {
   if (!data) return null
 
   // Data extraction (token0, token1, chainId already extracted above)
-  const tvl = data.data?.totalValueUSD || 0
-  const fees30d = data.summary?.fees30d?.usdValue || 0
-  const apy = data.apr || data.data?.apr || '21.3%'
-  const apyValue = typeof apy === 'string' ? parseFloat(apy.replace('%', '')) : apy
+  // tvl, fees30d, apyValue, displayPrice already computed above for hooks
 
   const lastRebalanced = data.data?.general?.lastRebalanced
     ? getRelativeTime(data.data.general.lastRebalanced).replace(' ago', '')
     : '18 hours'
 
-  // Calculations
-  // Adjust raw amounts by decimals to get actual token amounts
-  const token0Decimals = token0?.decimals || 18
-  const token1Decimals = token1?.decimals || 6
-  const token0RawAmount = token0?.amount ? parseFloat(token0.amount) : 0
-  const token1RawAmount = token1?.amount ? parseFloat(token1.amount) : 0
-  
-  // Calculate actual token amounts (dividing by 10^decimals)
-  const token0ActualAmount = token0RawAmount / Math.pow(10, token0Decimals)
-  const token1ActualAmount = token1RawAmount / Math.pow(10, token1Decimals)
-  
-  // Calculate price from USD value and actual amount
-  const token0Price = token0ActualAmount > 0 ? (token0?.valueUSD || 0) / token0ActualAmount : 0
-  const token1Price = token1ActualAmount > 0 ? (token1?.valueUSD || 0) / token1ActualAmount : 0
-
-  // Check if token0 is a stablecoin - if so, show token1 price instead
-  const stablecoinSymbols = ['USDT', 'USDC', 'DAI', 'BUSD', 'TUSD', 'USDP', 'FRAX', 'LUSD', 'GUSD', 'HUSD', 'SUSD', 'USDX', 'USDN', 'USDD', 'MIM', 'FEI', 'UST', 'EURT', 'EURS']
-  const isToken0Stablecoin = token0?.symbol && stablecoinSymbols.includes(token0.symbol.toUpperCase())
-  
-  // For WETH/WOO pair, show WOO (token1) price instead of WETH (token0)
-  const isWETHPair = token0?.symbol?.toUpperCase() === 'WETH' && token1?.symbol?.toUpperCase() === 'WOO'
-  
   // Determine which token price to display
   const displayToken = isToken0Stablecoin || isWETHPair ? token1 : token0
-  const displayPrice = isToken0Stablecoin || isWETHPair ? token1Price : token0Price
 
   const totalInventoryUSD = (token0?.valueUSD || 0) + (token1?.valueUSD || 0)
   const token0Ratio = totalInventoryUSD > 0 ? ((token0?.valueUSD || 0) / totalInventoryUSD) * 100 : 50
@@ -620,21 +739,6 @@ export function VaultStats({ data, loading }: VaultStatsProps) {
     // Otherwise format with up to 3 decimal places
     return `$${formatNumber(price, 3)}`
   }
-
-  // State for historical data and calculated changes
-  const [historicalChanges, setHistoricalChanges] = React.useState<{
-    priceChange: number | null
-    tvlChange: number | null
-    feesChange: number | null
-    apyChange: number | null
-    loading: boolean
-  }>({
-    priceChange: null,
-    tvlChange: null,
-    feesChange: null,
-    apyChange: null,
-    loading: true,
-  })
 
   // Fetch historical data to calculate "today" changes
   React.useEffect(() => {
@@ -781,63 +885,6 @@ export function VaultStats({ data, loading }: VaultStatsProps) {
   const feesChange = historicalChanges.feesChange ?? (historicalChanges.loading ? null : 0)
   const apyChange = historicalChanges.apyChange ?? (historicalChanges.loading ? null : 0)
 
-  // Calculate vault health status
-  const healthStatus = React.useMemo(() => {
-    // Extract price impact for $10k trade
-    // Handle both string and number keys
-    const priceImpactBuy = data.summary?.priceImpact?.buy
-    let priceImpact10k: number | undefined
-    
-    if (priceImpactBuy) {
-      // Try string key first
-      const impact = priceImpactBuy['10000'] || priceImpactBuy[10000]
-      if (impact !== undefined && impact !== null) {
-        priceImpact10k = Math.abs(parseFloat(impact.toString()))
-      }
-    }
-
-    // Calculate rebalance age in hours
-    const lastRebalancedDate = data.data?.general?.lastRebalanced
-    const rebalanceAgeHours = lastRebalancedDate
-      ? (Date.now() - new Date(lastRebalancedDate).getTime()) / (1000 * 60 * 60)
-      : undefined
-
-    // Calculate inventory balance difference from 50/50
-    // token0.percentage is already 0-100 range
-    const inventoryDiff = token0?.percentage !== undefined
-      ? Math.abs(token0.percentage - 50)
-      : undefined
-
-    // Calculate fees rate (fees30d / TVL / 30 days = per day rate)
-    const feesRate = tvl > 0 && fees30d > 0
-      ? (fees30d / tvl) / 30 // Convert 30d fees to daily rate
-      : undefined
-
-    // For in-range %, we estimate based on inventory balance stability
-    // If balance is close to 50/50, it suggests price stayed in range
-    // This is a simplified heuristic - ideally would use tick history
-    let inRangePercent: number | undefined
-    if (inventoryDiff !== undefined) {
-      // If inventory is well-balanced (diff < 20%), assume high in-range %
-      // If very unbalanced (diff > 40%), assume low in-range %
-      if (inventoryDiff < 20) {
-        inRangePercent = 85 // High estimate
-      } else if (inventoryDiff < 30) {
-        inRangePercent = 65 // Medium estimate
-      } else {
-        inRangePercent = 35 // Low estimate
-      }
-    }
-
-    return calculateVaultStatus({
-      priceImpact10k,
-      inRangePercent,
-      rebalanceAgeHours,
-      inventoryDiff,
-      feesRate,
-    })
-  }, [data, token0, tvl, fees30d])
-
   // Status styling
   const statusConfig: Record<VaultStatus, { color: string; indicatorColor: string }> = {
     Healthy: { color: 'text-emerald-500', indicatorColor: 'bg-emerald-500' },
@@ -846,8 +893,6 @@ export function VaultStats({ data, loading }: VaultStatsProps) {
   }
 
   const statusStyle = statusConfig[healthStatus.status]
-  const [showTooltip, setShowTooltip] = React.useState(false)
-  const statusRef = React.useRef<HTMLDivElement>(null)
 
   // Close tooltip when clicking outside
   React.useEffect(() => {
@@ -863,50 +908,7 @@ export function VaultStats({ data, loading }: VaultStatsProps) {
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [showTooltip])
 
-  // Get raw metrics for tooltip
-  const rawMetrics = React.useMemo(() => {
-    const priceImpactBuy = data.summary?.priceImpact?.buy
-    let priceImpact10k: number | undefined
-    
-    if (priceImpactBuy) {
-      const impact = priceImpactBuy['10000'] || priceImpactBuy[10000]
-      if (impact !== undefined && impact !== null) {
-        priceImpact10k = Math.abs(parseFloat(impact.toString()))
-      }
-    }
-
-    const lastRebalancedDate = data.data?.general?.lastRebalanced
-    const rebalanceAgeHours = lastRebalancedDate
-      ? (Date.now() - new Date(lastRebalancedDate).getTime()) / (1000 * 60 * 60)
-      : undefined
-
-    const inventoryDiff = token0?.percentage !== undefined
-      ? Math.abs(token0.percentage - 50)
-      : undefined
-
-    const feesRate = tvl > 0 && fees30d > 0
-      ? (fees30d / tvl) / 30
-      : undefined
-
-    let inRangePercent: number | undefined
-    if (inventoryDiff !== undefined) {
-      if (inventoryDiff < 20) {
-        inRangePercent = 85
-      } else if (inventoryDiff < 30) {
-        inRangePercent = 65
-      } else {
-        inRangePercent = 35
-      }
-    }
-
-    return {
-      priceImpact10k,
-      inRangePercent,
-      rebalanceAgeHours,
-      inventoryDiff,
-      feesRate,
-    }
-  }, [data, token0, tvl, fees30d])
+  // rawMetrics already computed above in useMemo hook
 
   return (
     <div className="stats-container py-2">
@@ -927,7 +929,7 @@ export function VaultStats({ data, loading }: VaultStatsProps) {
             <Info className="w-3.5 h-3.5 text-muted-foreground opacity-60 group-hover:opacity-100 transition-opacity" />
           </div>
         </div>
-        {showTooltip && (
+        {showTooltip && rawMetrics && (
           <StatusTooltip
             status={healthStatus.status}
             score={healthStatus.score}

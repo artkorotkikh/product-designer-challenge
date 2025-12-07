@@ -101,7 +101,7 @@ export function PriceImpactTable({ chainId, vaultAddress, vaultData }: PriceImpa
     }
 
     fetchAllPriceImpacts()
-  }, [chainId, vaultAddress, vaultData])
+  }, [chainId, vaultAddress, vaultData, tradeSizes])
 
   // Get impact color based on magnitude
   const getImpactColor = (impact: number | null): { bg: string; text: string } => {
