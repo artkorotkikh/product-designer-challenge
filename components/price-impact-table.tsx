@@ -21,8 +21,8 @@ export function PriceImpactTable({ chainId, vaultAddress, vaultData }: PriceImpa
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
 
-  // Trade sizes to fetch (in USD)
-  const tradeSizes = [1000, 10000, 25000, 50000, 100000]
+  // Trade sizes to fetch (in USD) - memoized to avoid dependency issues
+  const tradeSizes = React.useMemo(() => [1000, 10000, 25000, 50000, 100000], [])
 
   React.useEffect(() => {
     // If vaultData is provided, use it directly

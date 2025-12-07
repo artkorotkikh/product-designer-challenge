@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import Image from 'next/image'
-import { useSearchParams } from 'next/navigation'
+import { useSearchParams, useRouter } from 'next/navigation'
 import { ChevronRight, Hexagon, PanelLeftClose, PanelLeftOpen } from 'lucide-react'
 import { cn, formatCompactNumber, calculateVaultStatus, type VaultStatus } from '@/lib/utils'
 import { TEST_VAULTS, fetchVaultDetails } from '@/lib/api'
@@ -28,6 +28,7 @@ interface VaultWithMetadata {
 }
 
 export function Sidebar({ collapsed, setCollapsed }: SidebarProps) {
+  const router = useRouter()
   const searchParams = useSearchParams()
   const currentAddress = searchParams.get('address')
   const currentChainId = searchParams.get('chainId')
@@ -221,8 +222,16 @@ export function Sidebar({ collapsed, setCollapsed }: SidebarProps) {
                 <Link
                   key={`${vault.chainId}-${vault.address}`}
                   href={`/?chainId=${vault.chainId}&address=${vault.address}`}
+                  onClick={(e) => {
+                    // Force navigation even if URL is the same
+                    if (isActive) {
+                      e.preventDefault()
+                      router.push(`/?chainId=${vault.chainId}&address=${vault.address}`)
+                      router.refresh()
+                    }
+                  }}
                   className={cn(
-                    "group flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-md transition-all duration-200",
+                    "group flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-md transition-all duration-200 cursor-pointer",
                     isActive 
                       ? "bg-primary/10 text-primary border border-primary/20" 
                       : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",

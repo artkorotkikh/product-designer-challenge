@@ -574,6 +574,159 @@ export function VaultStats({ data, loading }: VaultStatsProps) {
     }
   }, [data, token0, tvl, fees30d])
 
+  // Fetch historical data to calculate "today" changes (useEffect must be before conditional returns)
+  React.useEffect(() => {
+    // Reset to loading state when data changes (switching vaults)
+    setHistoricalChanges({
+      priceChange: null,
+      tvlChange: null,
+      feesChange: null,
+      apyChange: null,
+      loading: true,
+    })
+
+    if (!data || !chainId || !data.vaultId) {
+      setHistoricalChanges({
+        priceChange: null,
+        tvlChange: null,
+        feesChange: null,
+        apyChange: null,
+        loading: false,
+      })
+      return
+    }
+
+    async function fetchHistoricalData() {
+      try {
+        const now = new Date()
+        const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000) // 24 hours ago
+        const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000) // 30 days ago
+        const thirtyDaysAgoFromYesterday = new Date(yesterday.getTime() - 30 * 24 * 60 * 60 * 1000)
+
+        // Fetch vault balance history (for TVL comparison)
+        const balanceResponse = await fetchVaultBalance(
+          chainId,
+          data.vaultId,
+          yesterday.toISOString(),
+          now.toISOString()
+        )
+
+        // Fetch fees history for 30d fees calculation
+        // Get fees for last 30 days from now
+        const feesNowResponse = await fetchFeesHistory(
+          chainId,
+          data.vaultId,
+          thirtyDaysAgo.toISOString().split('T')[0],
+          now.toISOString().split('T')[0]
+        )
+
+        // Get fees for last 30 days from yesterday
+        const feesYesterdayResponse = await fetchFeesHistory(
+          chainId,
+          data.vaultId,
+          thirtyDaysAgoFromYesterday.toISOString().split('T')[0],
+          yesterday.toISOString().split('T')[0]
+        )
+
+        // Calculate TVL change
+        let tvlChangeValue: number | null = null
+        if (balanceResponse?.data && balanceResponse.data.length > 0) {
+          // Get the earliest data point (closest to 24h ago)
+          const historicalTvl = balanceResponse.data[0]?.totalValueUSD || 0
+          if (historicalTvl > 0 && tvl > 0) {
+            tvlChangeValue = ((tvl - historicalTvl) / historicalTvl) * 100
+          }
+        }
+
+        // Calculate 30d fees change
+        let feesChangeValue: number | null = null
+        // Handle both API response structures (with summary or without)
+        // Prefer summary.totalFeesUSD if available, otherwise sum data points
+        const feesNow = (feesNowResponse as any)?.summary?.totalFeesUSD ?? 
+          (feesNowResponse?.data?.reduce((sum: number, point: any) => {
+            const fees = point.feesUSD ?? 0
+            return sum + (typeof fees === 'number' ? fees : parseFloat(String(fees)) || 0)
+          }, 0) ?? 0)
+        
+        const feesYesterday = (feesYesterdayResponse as any)?.summary?.totalFeesUSD ?? 
+          (feesYesterdayResponse?.data?.reduce((sum: number, point: any) => {
+            const fees = point.feesUSD ?? 0
+            return sum + (typeof fees === 'number' ? fees : parseFloat(String(fees)) || 0)
+          }, 0) ?? 0)
+
+        // Compare current fees30d with historical 30d fees from 24h ago
+        if (feesYesterday > 0 && fees30d > 0) {
+          feesChangeValue = ((fees30d - feesYesterday) / feesYesterday) * 100
+        }
+
+        // Calculate APY change
+        // APY = (fees30d / TVL) * (365 / 30) * 100
+        let apyChangeValue: number | null = null
+        // Calculate APY from current data
+        const currentApy = tvl > 0 && fees30d > 0 
+          ? (fees30d / tvl) * (365 / 30) * 100 
+          : apyValue
+
+        // Calculate historical APY from 24h ago
+        const historicalTvl = balanceResponse?.data?.[0]?.totalValueUSD || null
+        if (historicalTvl && historicalTvl > 0 && feesYesterday > 0) {
+          const historicalApy = (feesYesterday / historicalTvl) * (365 / 30) * 100
+          if (historicalApy > 0) {
+            apyChangeValue = ((currentApy - historicalApy) / historicalApy) * 100
+          }
+        }
+
+        // Calculate price change from historical data
+        let priceChangeValue: number | null = null
+        if (balanceResponse?.data && balanceResponse.data.length > 0 && displayPrice > 0) {
+          // Get the earliest data point (closest to 24h ago)
+          const historicalDataPoint = balanceResponse.data[0]
+          // Use the appropriate token price based on which one we're displaying
+          const historicalPrice = isToken0Stablecoin 
+            ? (historicalDataPoint?.tokens?.token1?.price || 0)
+            : (historicalDataPoint?.tokens?.token0?.price || 0)
+          if (historicalPrice > 0) {
+            priceChangeValue = ((displayPrice - historicalPrice) / historicalPrice) * 100
+          }
+        }
+
+        setHistoricalChanges({
+          priceChange: priceChangeValue,
+          tvlChange: tvlChangeValue,
+          feesChange: feesChangeValue,
+          apyChange: apyChangeValue,
+          loading: false,
+        })
+      } catch (error) {
+        console.error('Error fetching historical data for changes:', error)
+        // Fallback to null values on error
+        setHistoricalChanges({
+          priceChange: null,
+          tvlChange: null,
+          feesChange: null,
+          apyChange: null,
+          loading: false,
+        })
+      }
+    }
+
+    fetchHistoricalData()
+  }, [data, chainId, tvl, fees30d, apyValue, displayPrice, isToken0Stablecoin])
+
+  // Close tooltip when clicking outside (useEffect must be before conditional returns)
+  React.useEffect(() => {
+    if (!showTooltip) return
+
+    const handleClickOutside = (event: MouseEvent) => {
+      if (statusRef.current && !statusRef.current.contains(event.target as Node)) {
+        setShowTooltip(false)
+      }
+    }
+
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [showTooltip])
+
   if (loading) {
     return (
       <div className="stats-container py-2">
@@ -740,145 +893,6 @@ export function VaultStats({ data, loading }: VaultStatsProps) {
     return `$${formatNumber(price, 3)}`
   }
 
-  // Fetch historical data to calculate "today" changes
-  React.useEffect(() => {
-    // Reset to loading state when data changes (switching vaults)
-    setHistoricalChanges({
-      priceChange: null,
-      tvlChange: null,
-      feesChange: null,
-      apyChange: null,
-      loading: true,
-    })
-
-    if (!data || !chainId || !data.vaultId) {
-      setHistoricalChanges({
-        priceChange: null,
-        tvlChange: null,
-        feesChange: null,
-        apyChange: null,
-        loading: false,
-      })
-      return
-    }
-
-    async function fetchHistoricalData() {
-      try {
-        const now = new Date()
-        const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000) // 24 hours ago
-        const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000) // 30 days ago
-        const thirtyDaysAgoFromYesterday = new Date(yesterday.getTime() - 30 * 24 * 60 * 60 * 1000)
-
-        // Fetch vault balance history (for TVL comparison)
-        const balanceResponse = await fetchVaultBalance(
-          chainId,
-          data.vaultId,
-          yesterday.toISOString(),
-          now.toISOString()
-        )
-
-        // Fetch fees history for 30d fees calculation
-        // Get fees for last 30 days from now
-        const feesNowResponse = await fetchFeesHistory(
-          chainId,
-          data.vaultId,
-          thirtyDaysAgo.toISOString().split('T')[0],
-          now.toISOString().split('T')[0]
-        )
-
-        // Get fees for last 30 days from yesterday
-        const feesYesterdayResponse = await fetchFeesHistory(
-          chainId,
-          data.vaultId,
-          thirtyDaysAgoFromYesterday.toISOString().split('T')[0],
-          yesterday.toISOString().split('T')[0]
-        )
-
-        // Calculate TVL change
-        let tvlChangeValue: number | null = null
-        if (balanceResponse?.data && balanceResponse.data.length > 0) {
-          // Get the earliest data point (closest to 24h ago)
-          const historicalTvl = balanceResponse.data[0]?.totalValueUSD || 0
-          if (historicalTvl > 0 && tvl > 0) {
-            tvlChangeValue = ((tvl - historicalTvl) / historicalTvl) * 100
-          }
-        }
-
-        // Calculate 30d fees change
-        let feesChangeValue: number | null = null
-        // Handle both API response structures (with summary or without)
-        // Prefer summary.totalFeesUSD if available, otherwise sum data points
-        const feesNow = (feesNowResponse as any)?.summary?.totalFeesUSD ?? 
-          (feesNowResponse?.data?.reduce((sum: number, point: any) => {
-            const fees = point.feesUSD ?? 0
-            return sum + (typeof fees === 'number' ? fees : parseFloat(String(fees)) || 0)
-          }, 0) ?? 0)
-        
-        const feesYesterday = (feesYesterdayResponse as any)?.summary?.totalFeesUSD ?? 
-          (feesYesterdayResponse?.data?.reduce((sum: number, point: any) => {
-            const fees = point.feesUSD ?? 0
-            return sum + (typeof fees === 'number' ? fees : parseFloat(String(fees)) || 0)
-          }, 0) ?? 0)
-
-        // Compare current fees30d with historical 30d fees from 24h ago
-        if (feesYesterday > 0 && fees30d > 0) {
-          feesChangeValue = ((fees30d - feesYesterday) / feesYesterday) * 100
-        }
-
-        // Calculate APY change
-        // APY = (fees30d / TVL) * (365 / 30) * 100
-        let apyChangeValue: number | null = null
-        // Calculate APY from current data
-        const currentApy = tvl > 0 && fees30d > 0 
-          ? (fees30d / tvl) * (365 / 30) * 100 
-          : apyValue
-
-        // Calculate historical APY from 24h ago
-        const historicalTvl = balanceResponse?.data?.[0]?.totalValueUSD || null
-        if (historicalTvl && historicalTvl > 0 && feesYesterday > 0) {
-          const historicalApy = (feesYesterday / historicalTvl) * (365 / 30) * 100
-          if (historicalApy > 0) {
-            apyChangeValue = ((currentApy - historicalApy) / historicalApy) * 100
-          }
-        }
-
-        // Calculate price change from historical data
-        let priceChangeValue: number | null = null
-        if (balanceResponse?.data && balanceResponse.data.length > 0 && displayPrice > 0) {
-          // Get the earliest data point (closest to 24h ago)
-          const historicalDataPoint = balanceResponse.data[0]
-          // Use the appropriate token price based on which one we're displaying
-          const historicalPrice = isToken0Stablecoin 
-            ? (historicalDataPoint?.tokens?.token1?.price || 0)
-            : (historicalDataPoint?.tokens?.token0?.price || 0)
-          if (historicalPrice > 0) {
-            priceChangeValue = ((displayPrice - historicalPrice) / historicalPrice) * 100
-          }
-        }
-
-        setHistoricalChanges({
-          priceChange: priceChangeValue,
-          tvlChange: tvlChangeValue,
-          feesChange: feesChangeValue,
-          apyChange: apyChangeValue,
-          loading: false,
-        })
-      } catch (error) {
-        console.error('Error fetching historical data for changes:', error)
-        // Fallback to null values on error
-        setHistoricalChanges({
-          priceChange: null,
-          tvlChange: null,
-          feesChange: null,
-          apyChange: null,
-          loading: false,
-        })
-      }
-    }
-
-    fetchHistoricalData()
-  }, [data, chainId, tvl, fees30d, apyValue, displayPrice, isToken0Stablecoin])
-
   // Use calculated changes or show 0 (grey) when loading/not available
   const priceChange = historicalChanges.priceChange ?? (historicalChanges.loading ? null : 0)
   const tvlChange = historicalChanges.tvlChange ?? (historicalChanges.loading ? null : 0)
@@ -893,20 +907,6 @@ export function VaultStats({ data, loading }: VaultStatsProps) {
   }
 
   const statusStyle = statusConfig[healthStatus.status]
-
-  // Close tooltip when clicking outside
-  React.useEffect(() => {
-    if (!showTooltip) return
-
-    const handleClickOutside = (event: MouseEvent) => {
-      if (statusRef.current && !statusRef.current.contains(event.target as Node)) {
-        setShowTooltip(false)
-      }
-    }
-
-    document.addEventListener('mousedown', handleClickOutside)
-    return () => document.removeEventListener('mousedown', handleClickOutside)
-  }, [showTooltip])
 
   // rawMetrics already computed above in useMemo hook
 

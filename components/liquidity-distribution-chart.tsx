@@ -55,7 +55,7 @@ interface LiquidityDistributionChartProps {
  * y is at the top of the chart area, so we position the label above it
  */
 const createMinMaxLabel = (labelText: string) => {
-  return (props: any) => {
+  const MinMaxLabel = (props: any) => {
     const { x, y, viewBox } = props
     console.log('MIN/MAX Label props:', { x, y, viewBox })
     
@@ -102,6 +102,8 @@ const createMinMaxLabel = (labelText: string) => {
       </g>
     )
   }
+  MinMaxLabel.displayName = `MinMaxLabel(${labelText})`
+  return MinMaxLabel
 }
 
 export function LiquidityDistributionChart({
@@ -680,7 +682,7 @@ export function LiquidityDistributionChart({
       <Card className="border-border/40 bg-card/50">
         <CardHeader>
           <CardTitle>Liquidity Distribution</CardTitle>
-          <CardDescription>Liquidity concentration across the vault's price range</CardDescription>
+          <CardDescription>Liquidity concentration across the vault&apos;s price range</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="h-[300px] flex flex-col items-center justify-center gap-3">
@@ -701,7 +703,7 @@ export function LiquidityDistributionChart({
       <Card className="border-border/40 bg-card/50">
         <CardHeader>
           <CardTitle>Liquidity Distribution</CardTitle>
-          <CardDescription>Liquidity concentration across the vault's price range</CardDescription>
+          <CardDescription>Liquidity concentration across the vault&apos;s price range</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="h-[300px] flex items-center justify-center">
@@ -717,7 +719,7 @@ export function LiquidityDistributionChart({
       <Card className="border-border/40 bg-card/50">
         <CardHeader>
           <CardTitle>Liquidity Distribution</CardTitle>
-          <CardDescription>Liquidity concentration across the vault's price range</CardDescription>
+          <CardDescription>Liquidity concentration across the vault&apos;s price range</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="h-[300px] flex flex-col items-center justify-center gap-2">
@@ -793,7 +795,7 @@ export function LiquidityDistributionChart({
     <Card className="border-border/40 bg-card/50">
       <CardHeader>
         <CardTitle>Liquidity Distribution</CardTitle>
-        <CardDescription>Liquidity concentration across the vault's price range</CardDescription>
+        <CardDescription>Liquidity concentration across the vault&apos;s price range</CardDescription>
       </CardHeader>
       <CardContent className="p-0 relative">
         <ResponsiveContainer width="100%" height={300}>
