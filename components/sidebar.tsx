@@ -4,7 +4,7 @@ import Link from 'next/link'
 import Image from 'next/image'
 import { useSearchParams } from 'next/navigation'
 import { ChevronRight, Hexagon, PanelLeftClose, PanelLeftOpen } from 'lucide-react'
-import { cn, formatCompactNumber } from '@/lib/utils'
+import { cn, formatCompactNumber, calculateVaultStatus, type VaultStatus } from '@/lib/utils'
 import { TEST_VAULTS, fetchVaultDetails } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { TokenIcon } from '@/components/token-icon'
@@ -23,6 +23,8 @@ interface VaultWithMetadata {
   chainId: number
   metadata: VaultMetadata | null
   loading: boolean
+  status?: VaultStatus
+  statusLoading: boolean
 }
 
 export function Sidebar({ collapsed, setCollapsed }: SidebarProps) {
@@ -31,7 +33,7 @@ export function Sidebar({ collapsed, setCollapsed }: SidebarProps) {
   const currentChainId = searchParams.get('chainId')
   const [vaultsWithMetadata, setVaultsWithMetadata] = useState<VaultWithMetadata[]>([])
 
-  // Fetch vault metadata for all test vaults
+  // Fetch vault metadata and status for all test vaults
   useEffect(() => {
     async function fetchAllVaults() {
       const vaultsData = TEST_VAULTS.map(vault => ({
@@ -39,6 +41,7 @@ export function Sidebar({ collapsed, setCollapsed }: SidebarProps) {
         chainId: vault.chainId,
         metadata: null as VaultMetadata | null,
         loading: true,
+        statusLoading: true,
       }))
       setVaultsWithMetadata(vaultsData)
 
@@ -59,7 +62,80 @@ export function Sidebar({ collapsed, setCollapsed }: SidebarProps) {
         chainId,
         metadata,
         loading,
+        statusLoading: true,
       })))
+
+      // Fetch full vault data for status calculation
+      const statusPromises = results.map(async ({ address, chainId, metadata }) => {
+        if (!metadata) return { address, chainId, status: undefined as VaultStatus | undefined }
+        
+        try {
+          const response = await fetch(`/api/vaults/${chainId}/${address}`)
+          if (!response.ok) return { address, chainId, status: undefined as VaultStatus | undefined }
+          
+          const fullData = await response.json()
+          
+          // Calculate status from full data
+          const token0 = fullData?.data?.tokens?.token0
+          const token1 = fullData?.data?.tokens?.token1
+          const tvl = fullData?.data?.totalValueUSD || 0
+          const fees30d = fullData?.summary?.fees30d?.usdValue || 0
+          
+          // Extract metrics for status calculation
+          const priceImpactBuy = fullData?.summary?.priceImpact?.buy
+          const priceImpact10k = priceImpactBuy?.['10000'] || priceImpactBuy?.[10000]
+          
+          const lastRebalancedDate = fullData?.data?.general?.lastRebalanced
+          const rebalanceAgeHours = lastRebalancedDate
+            ? (Date.now() - new Date(lastRebalancedDate).getTime()) / (1000 * 60 * 60)
+            : undefined
+          
+          const inventoryDiff = token0?.percentage !== undefined
+            ? Math.abs(token0.percentage - 50)
+            : undefined
+          
+          const feesRate = tvl > 0 && fees30d > 0
+            ? (fees30d / tvl) / 30
+            : undefined
+          
+          // Estimate in-range % based on inventory balance
+          let inRangePercent: number | undefined
+          if (inventoryDiff !== undefined) {
+            if (inventoryDiff < 20) {
+              inRangePercent = 85
+            } else if (inventoryDiff < 30) {
+              inRangePercent = 65
+            } else {
+              inRangePercent = 35
+            }
+          }
+          
+          const statusResult = calculateVaultStatus({
+            priceImpact10k: priceImpact10k ? Math.abs(parseFloat(priceImpact10k.toString())) : undefined,
+            inRangePercent,
+            rebalanceAgeHours,
+            inventoryDiff,
+            feesRate,
+          })
+          
+          return { address, chainId, status: statusResult.status }
+        } catch (error) {
+          console.error(`Failed to fetch status for vault ${address}:`, error)
+          return { address, chainId, status: undefined as VaultStatus | undefined }
+        }
+      })
+
+      const statusResults = await Promise.all(statusPromises)
+      
+      // Update vaults with status
+      setVaultsWithMetadata(prev => prev.map(vault => {
+        const statusResult = statusResults.find(s => s.address === vault.address && s.chainId === vault.chainId)
+        return {
+          ...vault,
+          status: statusResult?.status,
+          statusLoading: false,
+        }
+      }))
     }
 
     fetchAllVaults()
@@ -154,12 +230,12 @@ export function Sidebar({ collapsed, setCollapsed }: SidebarProps) {
                   )}
                   title={collapsed ? pairName : undefined}
                 >
-                  {/* Token Pair Icons */}
-                  <div className="flex items-center shrink-0">
+                  {/* Token Pair Icons with Status Indicator */}
+                  <div className="flex items-center shrink-0 relative">
                     {vault.loading ? (
                       <div className="w-8 h-8 rounded-full bg-muted/50 animate-pulse" />
                     ) : token0 && token1 ? (
-                      <div className="flex -space-x-2">
+                      <div className="flex -space-x-2 relative">
                         <TokenIcon
                           address={token0.address}
                           chainId={vault.chainId}
@@ -178,6 +254,18 @@ export function Sidebar({ collapsed, setCollapsed }: SidebarProps) {
                             isActive ? "border-primary/30" : "border-background"
                           )}
                         />
+                        {/* Status Indicator Dot */}
+                        {!vault.statusLoading && vault.status && (
+                          <div
+                            className={cn(
+                              "absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2",
+                              vault.status === 'Healthy' && "bg-emerald-500 border-background",
+                              vault.status === 'Warning' && "bg-yellow-500 border-background",
+                              vault.status === 'Critical' && "bg-red-500 border-background"
+                            )}
+                            title={`Status: ${vault.status}`}
+                          />
+                        )}
                       </div>
                     ) : (
                       <Hexagon className={cn("w-4 h-4", isActive ? "text-primary" : "text-muted-foreground")} />

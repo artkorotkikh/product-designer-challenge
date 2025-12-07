@@ -392,20 +392,38 @@ export function PerformanceCharts({ chainId, vaultAddress, vaultData }: Performa
     const feeTier = 0.003 // 0.3% - typical fee tier
     const estimatedFees = volume * feeTier
     
+    // Format date as "Dec 8" (month and day)
+    let tooltipDate = point.date || 'N/A'
+    if (point.fullDate) {
+      const date = new Date(point.fullDate + 'T00:00:00Z')
+      tooltipDate = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+    } else if (point.timestamp) {
+      const date = new Date(point.timestamp)
+      tooltipDate = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+    }
+    
+    // Format volume as "$219k"
+    const formatVolume = (value: number) => {
+      if (value >= 1000) {
+        return `$${(value / 1000).toFixed(0)}k`
+      }
+      return `$${formatNumber(value, 0)}`
+    }
+    
     return (
       <div className="bg-slate-900 border border-slate-700 rounded-lg p-3 shadow-lg">
         <p className="text-sm font-medium text-foreground mb-2">
-          {point.date}
+          {tooltipDate}
         </p>
         <div className="space-y-1">
           <p className="text-xs text-muted-foreground">
-            Volume: <span className="text-foreground font-mono">${formatNumber(volume, 0)}</span>
+            Volume: <span className="text-foreground font-mono">{formatVolume(volume)}</span>
           </p>
           <p className="text-xs text-muted-foreground">
-            Fee Tier: <span className="text-foreground font-mono">{(feeTier * 100).toFixed(2)}%</span>
+            Fee tier: <span className="text-foreground font-mono">{(feeTier * 100).toFixed(2)}%</span>
           </p>
           <p className="text-xs text-muted-foreground">
-            Estimated Fees: <span className="text-foreground font-mono">${formatNumber(estimatedFees, 2)}</span>
+            Estimated fees: <span className="text-foreground font-mono">${formatNumber(estimatedFees, 2)}</span>
           </p>
         </div>
       </div>

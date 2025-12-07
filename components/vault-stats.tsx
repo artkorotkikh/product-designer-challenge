@@ -150,79 +150,134 @@ function StatusTooltip({
 
   const getMetricStatus = (score: number) => {
     if (score >= 80) return { color: 'text-emerald-500', label: 'Good' }
-    if (score >= 50) return { color: 'text-yellow-500', label: 'Fair' }
+    if (score >= 50) return { color: 'text-yellow-500', label: 'Medium' }
     return { color: 'text-red-500', label: 'Poor' }
   }
 
-  const getMetricRecommendation = (metric: string, score: number, value?: number) => {
-    if (score >= 80) return null
-    
-    switch (metric) {
-      case 'priceImpact':
-        return value !== undefined && value > 0.006
-          ? 'Price impact is high. Consider adding more liquidity or narrowing the price range.'
-          : 'Monitor price impact closely for large trades.'
-      case 'inRange':
-        return 'Liquidity may be outside the active trading range. Consider rebalancing to optimize fee generation.'
-      case 'rebalance':
-        return value !== undefined && value > 24
-          ? 'Last rebalance was more than 24 hours ago. Consider rebalancing to maintain optimal liquidity distribution.'
-          : 'Monitor rebalance frequency to ensure optimal performance.'
-      case 'inventory':
-        return value !== undefined && value > 25
-          ? 'Inventory balance is skewed. This may indicate price movement outside the active range or rebalancing needed.'
-          : 'Monitor inventory balance to maintain optimal 50/50 distribution.'
-      case 'fees':
-        return value !== undefined && value < 0.002
-          ? 'Fee generation is low relative to TVL. This may indicate low trading volume or suboptimal liquidity placement.'
-          : 'Monitor fee generation to ensure optimal returns.'
-      default:
-        return null
-    }
+  // Calculate contribution to overall score (weighted)
+  const getContribution = (score: number, weight: number) => {
+    return Math.round(score * weight)
   }
 
-  // Get only problematic metrics (score < 50)
-  const problematicMetrics = [
-    { name: 'Price Impact', score: breakdown.priceImpact, value: metrics.priceImpact10k ? `${metrics.priceImpact10k.toFixed(2)}%` : undefined },
-    { name: 'In-Range', score: breakdown.inRange, value: metrics.inRangePercent ? `${metrics.inRangePercent.toFixed(0)}%` : undefined },
-    { name: 'Rebalance', score: breakdown.rebalance, value: metrics.rebalanceAgeHours ? (metrics.rebalanceAgeHours < 24 ? `${metrics.rebalanceAgeHours.toFixed(1)}h` : `${(metrics.rebalanceAgeHours / 24).toFixed(1)}d`) : undefined },
-    { name: 'Inventory', score: breakdown.inventory, value: metrics.inventoryDiff ? `${metrics.inventoryDiff.toFixed(1)}%` : undefined },
-    { name: 'Fees Rate', score: breakdown.fees, value: metrics.feesRate ? `${(metrics.feesRate * 100).toFixed(3)}%` : undefined },
-  ].filter(m => m.score < 50)
+  const weights = {
+    inRange: 0.25,
+    priceImpact: 0.30,
+    inventory: 0.15,
+    rebalance: 0.15,
+    fees: 0.15,
+  }
+
+  // All metrics with proper names and contributions
+  const allMetrics = [
+    { 
+      name: 'Liquidity Depth', 
+      key: 'inRange',
+      score: breakdown.inRange, 
+      contribution: getContribution(breakdown.inRange, weights.inRange),
+      value: metrics.inRangePercent ? `${metrics.inRangePercent.toFixed(0)}%` : undefined,
+      issueLabel: (val: string) => `Liquidity depth low (${val})`
+    },
+    { 
+      name: 'Price Impact', 
+      key: 'priceImpact',
+      score: breakdown.priceImpact, 
+      contribution: getContribution(breakdown.priceImpact, weights.priceImpact),
+      value: metrics.priceImpact10k ? `${(metrics.priceImpact10k * 100).toFixed(2)}%` : undefined,
+      issueLabel: (val: string) => `Price impact elevated (${val})`
+    },
+    { 
+      name: 'Inventory Balance', 
+      key: 'inventory',
+      score: breakdown.inventory, 
+      contribution: getContribution(breakdown.inventory, weights.inventory),
+      value: metrics.inventoryDiff ? `${metrics.inventoryDiff.toFixed(1)}%` : undefined,
+      issueLabel: (val: string) => `Inventory imbalance (${val})`
+    },
+    { 
+      name: 'Rebalance Freshness', 
+      key: 'rebalance',
+      score: breakdown.rebalance, 
+      contribution: getContribution(breakdown.rebalance, weights.rebalance),
+      value: metrics.rebalanceAgeHours ? (metrics.rebalanceAgeHours < 24 ? `${metrics.rebalanceAgeHours.toFixed(1)}h` : `${Math.round(metrics.rebalanceAgeHours / 24)} days`) : undefined,
+      issueLabel: (val: string) => `Rebalance overdue (${val})`
+    },
+    { 
+      name: 'Volume Health', 
+      key: 'fees',
+      score: breakdown.fees, 
+      contribution: getContribution(breakdown.fees, weights.fees),
+      value: metrics.feesRate ? `${(metrics.feesRate * 100).toFixed(3)}%` : undefined,
+      issueLabel: (val: string) => `Volume health low (${val})`
+    },
+  ]
+
+  // Get problematic metrics (score < 50) for issues section
+  const problematicMetrics = allMetrics.filter(m => m.score < 50)
+
+  // Get recommendations based on problematic metrics
+  const getRecommendations = () => {
+    const recommendations: string[] = []
+    
+    if (problematicMetrics.some(m => m.key === 'priceImpact')) {
+      recommendations.push('Review liquidity range')
+    }
+    if (problematicMetrics.some(m => m.key === 'rebalance')) {
+      recommendations.push('Consider rebalancing soon')
+    }
+    if (problematicMetrics.some(m => m.key === 'inRange')) {
+      recommendations.push('Optimize liquidity placement')
+    }
+    if (problematicMetrics.some(m => m.key === 'inventory')) {
+      recommendations.push('Monitor inventory balance')
+    }
+    if (problematicMetrics.some(m => m.key === 'fees')) {
+      recommendations.push('Review fee generation')
+    }
+
+    return recommendations.length > 0 ? recommendations : []
+  }
+
+  const recommendations = getRecommendations()
 
   return (
-    <div className="absolute z-50 w-72 top-full left-0 mt-2 pointer-events-auto">
+    <div className="absolute z-50 w-80 top-full left-0 mt-2 pointer-events-auto">
       <div className={cn(
-        'rounded-lg border p-3 shadow-2xl',
-        config.bgColor,
-        'border-border/40',
-        'bg-card'
+        'rounded-lg border backdrop-blur-xl p-4 shadow-2xl',
+        'bg-slate-900/80 border-slate-700/50',
+        'backdrop-saturate-150'
       )}>
-        {/* Header */}
-        <div className="flex items-center justify-between mb-3">
-          <div className="flex items-center gap-2">
-            {config.icon}
-            <h3 className={cn('font-semibold text-sm', config.color)}>
+        {/* Status indicator and title */}
+        <div className="flex items-start gap-2.5 mb-4">
+          <div className={cn(
+            'w-2 h-2 rounded-full mt-1.5 flex-shrink-0',
+            {
+              'bg-emerald-500': status === 'Healthy',
+              'bg-yellow-500': status === 'Warning',
+              'bg-red-500': status === 'Critical',
+            }
+          )} />
+          <div className="flex-1 min-w-0">
+            <h3 className={cn('font-semibold text-sm mb-0.5', config.color)}>
               {config.title}
             </h3>
           </div>
           <button
             onClick={onClose}
-            className="text-muted-foreground hover:text-foreground transition-colors"
+            className="text-muted-foreground/60 hover:text-foreground transition-colors flex-shrink-0"
           >
             <X className="w-4 h-4" />
           </button>
         </div>
 
-        {/* Score */}
-        <div className="mb-3 pb-3 border-b border-border/40">
-          <div className="flex items-center justify-between mb-1.5">
+        {/* Health Score */}
+        <div className="mb-4 pb-4 border-b border-slate-700/30">
+          <div className="flex items-center justify-between mb-2">
             <span className="text-xs text-muted-foreground">Health Score</span>
-            <span className={cn('font-mono font-semibold', config.color)}>
-              {score}/100
+            <span className={cn('font-mono font-semibold text-base', config.color)}>
+              {score} / 100
             </span>
           </div>
-          <div className="w-full h-1.5 bg-muted rounded-full overflow-hidden">
+          <div className="w-full h-1.5 bg-slate-800/50 rounded-full overflow-hidden">
             <div
               className={cn('h-full transition-all', {
                 'bg-emerald-500': status === 'Healthy',
@@ -234,35 +289,66 @@ function StatusTooltip({
           </div>
         </div>
 
-        {/* Problematic Metrics */}
-        {problematicMetrics.length > 0 ? (
+        {/* Breakdown - All Metrics */}
+        <div className="mb-4">
+          <h4 className="text-xs font-medium text-foreground mb-3">Breakdown</h4>
           <div className="space-y-2">
-            <h4 className="text-xs font-medium text-foreground">Issues to address:</h4>
-            {problematicMetrics.map((metric) => {
-              const status = getMetricStatus(metric.score)
+            {allMetrics.map((metric) => {
+              const metricStatus = getMetricStatus(metric.score)
               return (
-                <div key={metric.name} className="flex items-center justify-between">
-                  <span className="text-xs text-muted-foreground">{metric.name}</span>
+                <div key={metric.name} className="flex items-center justify-between text-xs">
+                  <span className="text-muted-foreground">{metric.name}:</span>
                   <div className="flex items-center gap-2">
-                    {metric.value && (
-                      <span className="text-[10px] text-muted-foreground/70 font-mono">
-                        {metric.value}
-                      </span>
-                    )}
-                    <span className={cn('text-xs font-mono', status.color)}>
-                      {metric.score}/100
+                    <span className={cn('font-medium', metricStatus.color)}>
+                      {metricStatus.label}
                     </span>
-                    <span className={cn('text-[10px] px-1.5 py-0.5 rounded', status.color, 'bg-current/10')}>
-                      {status.label}
+                    <span className="text-muted-foreground/70 font-mono">
+                      · +{metric.contribution}
                     </span>
                   </div>
                 </div>
               )
             })}
           </div>
+        </div>
+
+        {/* Status message or Issues */}
+        {problematicMetrics.length > 0 ? (
+          <div className="space-y-3 pt-4 border-t border-slate-700/30">
+            <div>
+              <h4 className="text-xs font-medium text-foreground mb-2">Issues to address</h4>
+              <ul className="space-y-1.5">
+                {problematicMetrics.map((metric) => {
+                  if (!metric.value) return null
+                  return (
+                    <li key={metric.name} className="text-xs text-muted-foreground flex items-start gap-1.5">
+                      <span className="text-muted-foreground/50 mt-0.5">•</span>
+                      <span>{metric.issueLabel(metric.value)}</span>
+                    </li>
+                  )
+                })}
+              </ul>
+            </div>
+            
+            {recommendations.length > 0 && (
+              <div>
+                <h4 className="text-xs font-medium text-foreground mb-2">Recommended actions</h4>
+                <ul className="space-y-1.5">
+                  {recommendations.map((rec, idx) => (
+                    <li key={idx} className="text-xs text-muted-foreground flex items-start gap-1.5">
+                      <span className="text-muted-foreground/50 mt-0.5">•</span>
+                      <span>{rec}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
         ) : (
-          <div className="text-xs text-muted-foreground">
-            All metrics are within healthy ranges.
+          <div className="pt-4 border-t border-slate-700/30">
+            <p className="text-xs text-muted-foreground">
+              All metrics are within healthy ranges.
+            </p>
           </div>
         )}
       </div>
