@@ -46,6 +46,7 @@ import { formatPriceFromTick } from '@/lib/utils'
 interface LiquidityDistributionChartProps {
   data: LiquidityProfile | null
   loading?: boolean
+  vaultData?: any // Optional vault data for token symbols
 }
 
 /**
@@ -106,6 +107,7 @@ const createMinMaxLabel = (labelText: string) => {
 export function LiquidityDistributionChart({
   data,
   loading,
+  vaultData,
 }: LiquidityDistributionChartProps) {
   const [chartData, setChartData] = React.useState<Array<{ relativePct: number; liquidity: number; price: number; inRange?: boolean }>>([])
   const [currentPrice, setCurrentPrice] = React.useState<number>(0)
@@ -115,6 +117,7 @@ export function LiquidityDistributionChart({
   const [domainMax, setDomainMax] = React.useState<number | null>(null)
   const [niceTicks, setNiceTicks] = React.useState<number[]>([])
   const [processing, setProcessing] = React.useState(false)
+  const [totalLiquidity, setTotalLiquidity] = React.useState<number>(0)
 
   React.useEffect(() => {
     if (!data) {
@@ -437,6 +440,10 @@ export function LiquidityDistributionChart({
     // Sort by relativePct
     processed.sort((a, b) => a.relativePct - b.relativePct)
 
+    // Calculate total liquidity for share calculation
+    const total = processed.reduce((sum, tick) => sum + tick.liquidity, 0)
+    setTotalLiquidity(total)
+
     console.log(`Processed ${processed.length} ticks`)
     if (processed.length > 0) {
       console.log('First processed tick:', processed[0])
@@ -729,37 +736,53 @@ export function LiquidityDistributionChart({
   const CustomTooltip = ({ active, payload }: any) => {
     if (active && payload && payload.length) {
       const data = payload[0].payload
-      const isInRange = data.inRange !== false && minRelativePct !== null && maxRelativePct !== null
-        ? data.relativePct >= minRelativePct && data.relativePct <= maxRelativePct
-        : data.inRange !== false
       
-      // Format relativePct with sign
-      const relativePctFormatted = data.relativePct >= 0 
-        ? `+${data.relativePct.toFixed(2)}%` 
-        : `${data.relativePct.toFixed(2)}%`
+      // Get token symbols from vaultData
+      const token0Symbol = vaultData?.data?.tokens?.token0?.symbol || 'Token0'
+      const token1Symbol = vaultData?.data?.tokens?.token1?.symbol || 'Token1'
       
-      // Format price with $ and commas
-      const priceFormatted = `$${parseFloat(String(data.price)).toLocaleString('en-US', { 
-        minimumFractionDigits: 2, 
-        maximumFractionDigits: 2 
-      })}`
+      // Format price - remove trailing zeros
+      const priceValue = parseFloat(String(data.price))
+      const priceStr = formatPriceFromTick(priceValue)
+      const priceFormatted = priceStr.includes('.') 
+        ? priceStr.replace(/\.?0+$/, '') 
+        : priceStr
+      
+      // Format relativePct with sign and description
+      const relativePct = data.relativePct
+      const relativePctFormatted = relativePct >= 0 
+        ? `+${relativePct.toFixed(2)}%` 
+        : `${relativePct.toFixed(2)}%`
+      
+      // Add "slightly above/below" description
+      const distanceDescription = Math.abs(relativePct) < 1 
+        ? relativePct >= 0 ? ' (slightly above)' : ' (slightly below)'
+        : ''
+      
+      // Calculate share of total liquidity
+      const liquidityShare = totalLiquidity > 0 
+        ? (data.liquidity / totalLiquidity) * 100 
+        : 0
+      
+      // Format liquidity absolute value - show up to 3 decimal places, remove trailing zeros
+      const liquidityFormatted = data.liquidity.toLocaleString('en-US', {
+        minimumFractionDigits: 0,
+        maximumFractionDigits: 3
+      })
       
       return (
         <div className="bg-slate-900 border border-slate-700 rounded-lg p-3 shadow-lg">
           <p className="text-sm font-medium text-foreground">
-            Price: {priceFormatted}
+            Price: ${priceFormatted} ({token0Symbol} per {token1Symbol})
           </p>
           <p className="text-xs text-muted-foreground">
-            Distance vs current: {relativePctFormatted}
+            Distance vs current: {relativePctFormatted}{distanceDescription}
           </p>
-          <p className="text-xs text-muted-foreground">
-            Liquidity: {data.liquidity.toLocaleString()}
-          </p>
-          {minRelativePct !== null && maxRelativePct !== null && (
-            <p className={`text-xs mt-1 ${isInRange ? 'text-arrakis-orange' : 'text-muted-foreground'}`}>
-              {isInRange ? 'In Range' : 'Outside active range'}
-            </p>
-          )}
+          <div className="text-xs text-muted-foreground mt-1">
+            <p>Liquidity:</p>
+            <p className="ml-2">• Absolute: {liquidityFormatted}</p>
+            <p className="ml-2">• Share of total: {liquidityShare.toFixed(1)}%</p>
+          </div>
         </div>
       )
     }

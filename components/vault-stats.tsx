@@ -182,7 +182,7 @@ function StatusTooltip({
       key: 'priceImpact',
       score: breakdown.priceImpact, 
       contribution: getContribution(breakdown.priceImpact, weights.priceImpact),
-      value: metrics.priceImpact10k ? `${(metrics.priceImpact10k * 100).toFixed(2)}%` : undefined,
+      value: metrics.priceImpact10k ? `${metrics.priceImpact10k.toFixed(2)}%` : undefined,
       issueLabel: (val: string) => `Price impact elevated (${val})`
     },
     { 
@@ -301,7 +301,7 @@ function StatusTooltip({
                   <div className="flex items-center gap-2">
                     <span className={cn('font-medium', metricStatus.color)}>
                       {metricStatus.label}
-                    </span>
+                      </span>
                     <span className="text-muted-foreground/70 font-mono">
                       · +{metric.contribution}
                     </span>
@@ -347,7 +347,7 @@ function StatusTooltip({
         ) : (
           <div className="pt-4 border-t border-slate-700/30">
             <p className="text-xs text-muted-foreground">
-              All metrics are within healthy ranges.
+            All metrics are within healthy ranges.
             </p>
           </div>
         )}
@@ -580,9 +580,12 @@ export function VaultStats({ data, loading }: VaultStatsProps) {
   const stablecoinSymbols = ['USDT', 'USDC', 'DAI', 'BUSD', 'TUSD', 'USDP', 'FRAX', 'LUSD', 'GUSD', 'HUSD', 'SUSD', 'USDX', 'USDN', 'USDD', 'MIM', 'FEI', 'UST', 'EURT', 'EURS']
   const isToken0Stablecoin = token0?.symbol && stablecoinSymbols.includes(token0.symbol.toUpperCase())
   
+  // For WETH/WOO pair, show WOO (token1) price instead of WETH (token0)
+  const isWETHPair = token0?.symbol?.toUpperCase() === 'WETH' && token1?.symbol?.toUpperCase() === 'WOO'
+  
   // Determine which token price to display
-  const displayToken = isToken0Stablecoin ? token1 : token0
-  const displayPrice = isToken0Stablecoin ? token1Price : token0Price
+  const displayToken = isToken0Stablecoin || isWETHPair ? token1 : token0
+  const displayPrice = isToken0Stablecoin || isWETHPair ? token1Price : token0Price
 
   const totalInventoryUSD = (token0?.valueUSD || 0) + (token1?.valueUSD || 0)
   const token0Ratio = totalInventoryUSD > 0 ? ((token0?.valueUSD || 0) / totalInventoryUSD) * 100 : 50

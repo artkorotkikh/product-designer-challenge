@@ -436,7 +436,7 @@ export function PerformanceCharts({ chainId, vaultAddress, vaultData }: Performa
         <div className="flex items-center gap-6">
           <h2 className="text-2xl font-bold text-foreground">Performance</h2>
           <div className="flex gap-2 items-center">
-            {(['24h', '7d', '30d'] as TimePeriod[]).map((period) => (
+            {(['30d', '7d', '24h'] as TimePeriod[]).map((period) => (
               <button
                 key={period}
                 className="px-3 py-1.5 text-sm rounded bg-[#2a2a2a] text-muted-foreground"
@@ -471,7 +471,7 @@ export function PerformanceCharts({ chainId, vaultAddress, vaultData }: Performa
       <div className="flex items-center gap-6">
         <h2 className="text-2xl font-bold text-foreground">Performance</h2>
         <div className="flex gap-2 items-center">
-          {(['24h', '7d', '30d'] as TimePeriod[]).map((period) => (
+          {(['30d', '7d', '24h'] as TimePeriod[]).map((period) => (
             <button
               key={period}
               onClick={() => setTimePeriod(period)}

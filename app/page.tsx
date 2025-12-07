@@ -252,6 +252,7 @@ function DashboardContent() {
               <LiquidityDistributionChart 
                 data={liquidityData} 
                 loading={liquidityLoading}
+                vaultData={vaultData}
               />
               <PriceImpactTable
                 chainId={chainId ? Number(chainId) : null}
