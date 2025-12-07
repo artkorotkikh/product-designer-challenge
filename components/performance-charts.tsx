@@ -14,6 +14,7 @@ import {
   Tooltip,
   ResponsiveContainer,
   ReferenceLine,
+  ReferenceArea,
 } from 'recharts'
 import { fetchFeesHistory, fetchVaultBalance } from '@/lib/api'
 import type { FeesHistoryResponse, VaultBalanceResponse } from '@/lib/types'
@@ -28,11 +29,12 @@ interface PerformanceChartsProps {
 type TimePeriod = '24h' | '7d' | '30d'
 
 export function PerformanceCharts({ chainId, vaultAddress, vaultData }: PerformanceChartsProps) {
-  const [timePeriod, setTimePeriod] = React.useState<TimePeriod>('24h')
+  const [timePeriod, setTimePeriod] = React.useState<TimePeriod>('30d')
   const [feesData, setFeesData] = React.useState<any[]>([])
   const [inventoryData, setInventoryData] = React.useState<any[]>([])
   const [volumeData, setVolumeData] = React.useState<any[]>([])
   const [rebalanceTimestamps, setRebalanceTimestamps] = React.useState<number[]>([])
+  const [tokenSymbols, setTokenSymbols] = React.useState<{ token0: string; token1: string } | null>(null)
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
 
@@ -134,7 +136,29 @@ export function PerformanceCharts({ chainId, vaultAddress, vaultData }: Performa
           })
           .sort((a: any, b: any) => new Date(a.fullDate || a.timestamp).getTime() - new Date(b.fullDate || b.timestamp).getTime())
         
-        console.log('Processed fees:', processedFees)
+        console.log('Processed fees:', processedFees.length, 'items', processedFees)
+
+        // Calculate moving average for fees data
+        // Determine window size based on time period
+        let maWindowSize = 3 // default for 24h
+        if (timePeriod === '7d') {
+          maWindowSize = 5
+        } else if (timePeriod === '30d') {
+          maWindowSize = 7 // MA7 for 30d as per instructions
+        }
+        
+        const feesWithMA = processedFees.map((point: any, index: number) => {
+          // Calculate moving average from previous points
+          const startIndex = Math.max(0, index - maWindowSize + 1)
+          const window = processedFees.slice(startIndex, index + 1)
+          const sum = window.reduce((acc: number, p: any) => acc + (p.fees || 0), 0)
+          const movingAverage = sum / window.length
+          
+          return {
+            ...point,
+            movingAverage: movingAverage,
+          }
+        })
 
         // Process inventory data (vault balance)
         const balanceDataPoints = (balanceResponse as any)?.data || []
@@ -147,7 +171,12 @@ export function PerformanceCharts({ chainId, vaultAddress, vaultData }: Performa
         const processedInventory = balanceDataPoints
           .map((point: any) => {
             const timestamp = point.timestamp || point.time || point.date
-            const token0Pct = parseFloat(point.tokens?.token0?.percentage || '0') * 100
+            // Normalize percentage: API might return 0-1 or 0-100 range
+            let rawPercentage = parseFloat(point.tokens?.token0?.percentage || '0')
+            // If percentage > 1, it's already in 0-100 range, otherwise it's 0-1
+            const token0Pct = rawPercentage > 1 
+              ? Math.min(100, Math.max(0, rawPercentage)) 
+              : Math.min(100, Math.max(0, rawPercentage * 100))
             const date = new Date(timestamp)
             
             // Format X-axis label based on time period
@@ -163,11 +192,18 @@ export function PerformanceCharts({ chainId, vaultAddress, vaultData }: Performa
               token0Percentage: token0Pct,
               token1Percentage: 100 - token0Pct,
               date: xAxisLabel,
+              rawData: point, // Keep raw data for tooltip
             }
           })
           .sort((a: any, b: any) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
         
-        console.log('Processed inventory:', processedInventory.slice(0, 3))
+        console.log('Processed inventory:', processedInventory.length, 'items', processedInventory.slice(0, 3))
+
+        // Extract token symbols from balance response metadata or vault data
+        const balanceMetadata = (balanceResponse as any)?.metadata
+        const token0Symbol = balanceMetadata?.tokens?.token0?.symbol || vaultData?.data?.tokens?.token0?.symbol || 'Token0'
+        const token1Symbol = balanceMetadata?.tokens?.token1?.symbol || vaultData?.data?.tokens?.token1?.symbol || 'Token1'
+        setTokenSymbols({ token0: token0Symbol, token1: token1Symbol })
 
         // Get rebalance timestamps from vault data
         const rebalances = vaultData?.data?.general?.lastRebalanced
@@ -202,11 +238,11 @@ export function PerformanceCharts({ chainId, vaultAddress, vaultData }: Performa
           })
           .sort((a: any, b: any) => new Date(a.fullDate || a.timestamp).getTime() - new Date(b.fullDate || b.timestamp).getTime())
         
-        console.log('Processed volume:', volumeDataPoints.slice(0, 3))
+        console.log('Processed volume:', volumeDataPoints.length, 'items', volumeDataPoints.slice(0, 3))
 
-        console.log('Setting state - Fees:', processedFees.length, 'Inventory:', processedInventory.length, 'Volume:', volumeDataPoints.length)
+        console.log('Setting state - Fees:', feesWithMA.length, 'Inventory:', processedInventory.length, 'Volume:', volumeDataPoints.length)
         
-        setFeesData(processedFees)
+        setFeesData(feesWithMA)
         setInventoryData(processedInventory)
         setVolumeData(volumeDataPoints)
       } catch (err) {
@@ -242,16 +278,150 @@ export function PerformanceCharts({ chainId, vaultAddress, vaultData }: Performa
     }
   }, [inventoryData])
 
+  // Calculate cumulative fees up to a point
+  const calculateCumulativeFees = React.useCallback((data: any[], upToTimestamp: string) => {
+    return data
+      .filter(point => new Date(point.timestamp || point.fullDate).getTime() <= new Date(upToTimestamp).getTime())
+      .reduce((sum, point) => sum + (point.fees || 0), 0)
+  }, [])
+
+
+  // Get X-axis interval based on time period and data length
+  const getXAxisInterval = React.useCallback((period: TimePeriod, dataLength: number) => {
+    if (dataLength === 0) return 0
+    if (period === '24h') {
+      return Math.max(0, Math.floor(dataLength / 6)) // ~6 hourly ticks
+    } else if (period === '7d') {
+      return Math.max(0, Math.floor(dataLength / 7)) // daily
+    } else {
+      return Math.max(0, Math.floor(dataLength / 10)) // every 2-3 days
+    }
+  }, [])
+
+  // Custom Tooltip for Fees Chart
+  const FeesTooltip = ({ active, payload }: any) => {
+    if (!active || !payload || !payload.length) return null
+    
+    const point = payload[0].payload
+    const cumulativeFees = calculateCumulativeFees(feesData, point.timestamp)
+    const totalFees = currentFees || 0
+    const percentage = totalFees > 0 ? ((point.fees / totalFees) * 100).toFixed(1) : '0'
+    
+    // Format date as "Dec 1" (month and day)
+    let tooltipDate = point.date || 'N/A'
+    if (point.fullDate) {
+      const date = new Date(point.fullDate + 'T00:00:00Z')
+      tooltipDate = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+    } else if (point.timestamp) {
+      const date = new Date(point.timestamp)
+      tooltipDate = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+    }
+    
+    // Format cumulative fees as "$35.37k"
+    const formatCumulative = (value: number) => {
+      if (value >= 1000) {
+        return `$${(value / 1000).toFixed(2)}k`
+      }
+      return `$${formatNumber(value, 2)}`
+    }
+    
+    return (
+      <div className="bg-slate-900 border border-slate-700 rounded-lg p-3 shadow-lg">
+        <p className="text-sm font-medium text-foreground mb-2">
+          {tooltipDate}
+        </p>
+        <div className="space-y-1">
+          <p className="text-xs text-muted-foreground">
+            Daily Fees: <span className="text-foreground font-mono">${formatNumber(point.fees, 2)}</span>
+          </p>
+          <p className="text-xs text-muted-foreground">
+            Contribution: <span className="text-foreground font-mono">{percentage}%</span>
+          </p>
+          <p className="text-xs text-muted-foreground">
+            Cumulative: <span className="text-foreground font-mono">{formatCumulative(cumulativeFees)}</span>
+          </p>
+        </div>
+      </div>
+    )
+  }
+
+  // Custom Tooltip for Inventory Chart
+  const InventoryTooltip = ({ active, payload }: any) => {
+    if (!active || !payload || !payload.length) return null
+    
+    const point = payload[0].payload
+    const deviationValue = point.token0Percentage - 50
+    const deviationAbs = Math.abs(deviationValue)
+    const deviationFormatted = deviationValue.toFixed(1)
+    const token0Symbol = tokenSymbols?.token0 || 'Token0'
+    const token1Symbol = tokenSymbols?.token1 || 'Token1'
+    
+    return (
+      <div className="bg-slate-900 border border-slate-700 rounded-lg p-3 shadow-lg">
+        <p className="text-sm font-medium text-foreground mb-2">
+          {point.date}
+        </p>
+        <div className="space-y-1">
+          <p className="text-xs text-muted-foreground">
+            {token0Symbol}: <span className="text-foreground font-mono">{point.token0Percentage.toFixed(1)}%</span>
+          </p>
+          <p className="text-xs text-muted-foreground">
+            {token1Symbol}: <span className="text-foreground font-mono">{point.token1Percentage.toFixed(1)}%</span>
+          </p>
+          <p className="text-xs text-muted-foreground">
+            Deviation from 50/50: <span className={`font-mono ${deviationAbs > 10 ? 'text-orange-400' : 'text-foreground'}`}>
+              {deviationValue > 0 ? '+' : ''}{deviationFormatted}%
+            </span>
+          </p>
+          {deviationAbs > 10 && (
+            <p className="text-xs text-orange-400 mt-1">
+              ⚠ High drift detected
+            </p>
+          )}
+        </div>
+      </div>
+    )
+  }
+
+  // Custom Tooltip for Volume Chart
+  const VolumeTooltip = ({ active, payload }: any) => {
+    if (!active || !payload || !payload.length) return null
+    
+    const point = payload[0].payload
+    const volume = point.volume || 0
+    const feeTier = 0.003 // 0.3% - typical fee tier
+    const estimatedFees = volume * feeTier
+    
+    return (
+      <div className="bg-slate-900 border border-slate-700 rounded-lg p-3 shadow-lg">
+        <p className="text-sm font-medium text-foreground mb-2">
+          {point.date}
+        </p>
+        <div className="space-y-1">
+          <p className="text-xs text-muted-foreground">
+            Volume: <span className="text-foreground font-mono">${formatNumber(volume, 0)}</span>
+          </p>
+          <p className="text-xs text-muted-foreground">
+            Fee Tier: <span className="text-foreground font-mono">{(feeTier * 100).toFixed(2)}%</span>
+          </p>
+          <p className="text-xs text-muted-foreground">
+            Estimated Fees: <span className="text-foreground font-mono">${formatNumber(estimatedFees, 2)}</span>
+          </p>
+        </div>
+      </div>
+    )
+  }
+
   if (loading) {
     return (
       <div className="space-y-6">
-        <div className="flex items-center justify-between">
-          <h2 className="text-2xl font-semibold">Performance</h2>
-          <div className="flex gap-2">
+        <div className="flex items-center gap-6">
+          <h2 className="text-2xl font-bold text-foreground">Performance</h2>
+          <div className="flex gap-2 items-center">
             {(['24h', '7d', '30d'] as TimePeriod[]).map((period) => (
               <button
                 key={period}
-                className="px-3 py-1.5 text-sm rounded-md bg-muted text-muted-foreground"
+                className="px-3 py-1.5 text-sm rounded bg-[#2a2a2a] text-muted-foreground"
                 disabled
               >
                 {period}
@@ -280,16 +450,16 @@ export function PerformanceCharts({ chainId, vaultAddress, vaultData }: Performa
   return (
     <div className="space-y-6">
       {/* Header with time period selector */}
-      <div className="flex items-center justify-between">
-        <h2 className="text-2xl font-medium tracking-tight text-foreground">Performance</h2>
-        <div className="flex gap-2">
+      <div className="flex items-center gap-6">
+        <h2 className="text-2xl font-bold text-foreground">Performance</h2>
+        <div className="flex gap-2 items-center">
           {(['24h', '7d', '30d'] as TimePeriod[]).map((period) => (
             <button
               key={period}
               onClick={() => setTimePeriod(period)}
-              className={`px-3 py-1.5 text-sm rounded-md transition-colors ${
+              className={`px-3 py-1.5 text-sm rounded transition-colors ${
                 timePeriod === period
-                  ? 'bg-muted text-foreground font-medium'
+                  ? 'bg-[#2a2a2a] text-foreground'
                   : 'text-muted-foreground hover:text-foreground'
               }`}
             >
@@ -321,21 +491,21 @@ export function PerformanceCharts({ chainId, vaultAddress, vaultData }: Performa
               )}
             </div>
           </CardHeader>
-          <CardContent className="px-6 pt-0 pb-0">
+          <CardContent className="px-0 pr-5 pt-0 pb-0">
             {feesData.length === 0 ? (
               <div className="h-[200px] flex items-center justify-center text-muted-foreground text-sm">
                 No fees data available for this period
               </div>
             ) : (
               <ResponsiveContainer width="100%" height={200}>
-                <ComposedChart data={feesData}>
+                <ComposedChart data={feesData} barCategoryGap="10%" margin={{ left: 5, right: 5, top: 5, bottom: 5 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#9F9C97" opacity={0.2} />
                 <XAxis
                   dataKey="date"
                   stroke="#9F9C97"
                   fontSize={10}
                   tick={{ fill: '#9F9C97', fontFamily: 'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace' }}
-                  interval="preserveStartEnd"
+                  interval={getXAxisInterval(timePeriod, feesData.length)}
                 />
                 <YAxis
                   stroke="#9F9C97"
@@ -345,18 +515,18 @@ export function PerformanceCharts({ chainId, vaultAddress, vaultData }: Performa
                     if (value >= 1000) return `$${(value / 1000).toFixed(0)}k`
                     return `$${value}`
                   }}
+                  domain={[0, 'auto']}
                 />
-                <Tooltip
-                  contentStyle={{
-                    backgroundColor: '#1e293b',
-                    border: '1px solid #334155',
-                    borderRadius: '8px',
-                  }}
+                <Tooltip content={<FeesTooltip />} />
+                <Bar 
+                  dataKey="fees" 
+                  fill="#005efe" 
+                  radius={[2, 2, 0, 0]}
+                  maxBarSize={40}
                 />
-                <Bar dataKey="fees" fill="#598CD8" radius={[2, 2, 0, 0]} />
                 <Line
                   type="monotone"
-                  dataKey="fees"
+                  dataKey="movingAverage"
                   stroke="#EC9117"
                   strokeWidth={2}
                   dot={false}
@@ -387,21 +557,21 @@ export function PerformanceCharts({ chainId, vaultAddress, vaultData }: Performa
               )}
             </div>
           </CardHeader>
-          <CardContent className="px-6 pt-0 pb-0">
+          <CardContent className="px-0 pr-5 pt-0 pb-0">
             {inventoryData.length === 0 ? (
               <div className="h-[200px] flex items-center justify-center text-muted-foreground text-sm">
                 No inventory data available for this period
               </div>
             ) : (
               <ResponsiveContainer width="100%" height={200}>
-                <LineChart data={inventoryData}>
+                <LineChart data={inventoryData} margin={{ left: 0, right: 5, top: 5, bottom: 5 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#9F9C97" opacity={0.2} />
                 <XAxis
                   dataKey="date"
                   stroke="#9F9C97"
                   fontSize={10}
                   tick={{ fill: '#9F9C97', fontFamily: 'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace' }}
-                  interval="preserveStartEnd"
+                  interval={getXAxisInterval(timePeriod, inventoryData.length)}
                 />
                 <YAxis
                   stroke="#9F9C97"
@@ -410,14 +580,25 @@ export function PerformanceCharts({ chainId, vaultAddress, vaultData }: Performa
                   domain={[0, 100]}
                   tickFormatter={(value) => `${value}%`}
                 />
-                <Tooltip
-                  contentStyle={{
-                    backgroundColor: '#1e293b',
-                    border: '1px solid #334155',
-                    borderRadius: '8px',
+                <Tooltip content={<InventoryTooltip />} />
+                {/* Drift zones - highlight risk areas */}
+                <ReferenceArea y1={0} y2={40} fill="#ef4444" fillOpacity={0.03} />
+                <ReferenceArea y1={60} y2={100} fill="#ef4444" fillOpacity={0.03} />
+                <ReferenceArea y1={40} y2={60} fill="#22c55e" fillOpacity={0.05} />
+                {/* Baseline - balanced inventory */}
+                <ReferenceLine 
+                  y={50} 
+                  stroke="#EC9117" 
+                  strokeDasharray="4 4" 
+                  opacity={0.5}
+                  label={{ 
+                    value: "Balanced (50/50)", 
+                    position: "right",
+                    fill: "#EC9117",
+                    fontSize: 9,
+                    offset: 5
                   }}
                 />
-                <ReferenceLine y={50} stroke="#EC9117" strokeDasharray="4 4" opacity={0.5} />
                 {/* Rebalance markers */}
                 {rebalanceTimestamps.length > 0 && inventoryData.length > 0 && rebalanceTimestamps.map((timestamp, idx) => {
                   // Find the closest data point to the rebalance timestamp
@@ -465,21 +646,21 @@ export function PerformanceCharts({ chainId, vaultAddress, vaultData }: Performa
             <CardTitle>Volume over time</CardTitle>
             <CardDescription>Trading volume interacting with this vault's liquidity.</CardDescription>
           </CardHeader>
-          <CardContent className="px-6 pt-0 pb-0">
+          <CardContent className="px-0 pr-5 pt-0 pb-0">
             {volumeData.length === 0 ? (
               <div className="h-[200px] flex items-center justify-center text-muted-foreground text-sm">
                 No volume data available for this period
               </div>
             ) : (
               <ResponsiveContainer width="100%" height={200}>
-                <BarChart data={volumeData}>
+                <BarChart data={volumeData} barCategoryGap="10%" margin={{ left: 0, right: 5, top: 5, bottom: 5 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#9F9C97" opacity={0.2} />
                 <XAxis
                   dataKey="date"
                   stroke="#9F9C97"
                   fontSize={10}
                   tick={{ fill: '#9F9C97', fontFamily: 'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace' }}
-                  interval="preserveStartEnd"
+                  interval={getXAxisInterval(timePeriod, volumeData.length)}
                 />
                 <YAxis
                   stroke="#9F9C97"
@@ -490,15 +671,15 @@ export function PerformanceCharts({ chainId, vaultAddress, vaultData }: Performa
                     if (value >= 1000) return `$${(value / 1000).toFixed(0)}k`
                     return `$${value}`
                   }}
+                  domain={[0, 'auto']}
                 />
-                <Tooltip
-                  contentStyle={{
-                    backgroundColor: '#1e293b',
-                    border: '1px solid #334155',
-                    borderRadius: '8px',
-                  }}
+                <Tooltip content={<VolumeTooltip />} />
+                <Bar 
+                  dataKey="volume" 
+                  fill="#005efe" 
+                  radius={[2, 2, 0, 0]}
+                  maxBarSize={40}
                 />
-                <Bar dataKey="volume" fill="#598CD8" radius={[2, 2, 0, 0]}                 />
               </BarChart>
             </ResponsiveContainer>
             )}

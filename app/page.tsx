@@ -175,7 +175,7 @@ function DashboardContent() {
         {/* Scrollable Content Area */}
         <div className="flex-1 overflow-y-auto">
       {/* Header */}
-          <header className="flex h-20 items-center justify-between px-[72px] pt-8 pb-4 bg-background">
+          <header className="flex h-20 items-center justify-between px-4 md:px-6 lg:px-[72px] pt-8 pb-4 bg-background">
             <div className="flex items-center gap-6">
               {/* Token Pair Info */}
               {loading ? (
@@ -242,7 +242,7 @@ function DashboardContent() {
       </header>
 
       {/* Main Content */}
-          <div className="px-[72px] py-6 space-y-8">
+          <div className="px-4 md:px-6 lg:px-[72px] py-6 space-y-8">
             
             {/* Stats Row */}
             <VaultStats data={vaultData} loading={loading} />
@@ -270,7 +270,7 @@ function DashboardContent() {
         </div>
 
         {/* Slim Sticky Footer */}
-        <footer className="h-12 flex items-center justify-between px-[72px] border-t border-border/40 bg-background text-xs text-muted-foreground shrink-0 z-10">
+        <footer className="h-12 flex items-center justify-between px-4 md:px-6 lg:px-[72px] border-t border-border/40 bg-background text-xs text-muted-foreground shrink-0 z-10">
           <div className="flex items-center gap-2">
              <Image
                 src="/assets/icons/logo.svg"

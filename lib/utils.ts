@@ -150,7 +150,7 @@ const KNOWN_TOKEN_LOGOS: Record<string, string> = {
   
   // Token logo URLs - using CoinMarketCap
   'VSN': 'https://s2.coinmarketcap.com/static/img/coins/64x64/37322.png', // Vision Network
-  'FOLKS': 'https://assets.coingecko.com/coins/images/25392/large/FOLKS.png', // Folks Finance
+  'FOLKS': 'https://s2.coinmarketcap.com/static/img/coins/64x64/38864.png', // Folks Finance
   'WOO': 'https://s2.coinmarketcap.com/static/img/coins/64x64/7501.png', // WOO Network
   
   // Ethereum Mainnet specific addresses

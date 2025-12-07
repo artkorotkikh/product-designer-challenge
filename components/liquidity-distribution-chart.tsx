@@ -28,6 +28,8 @@ import * as React from 'react'
 import {
   BarChart,
   Bar,
+  ComposedChart,
+  Area,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -52,32 +54,46 @@ interface LiquidityDistributionChartProps {
  * y is at the top of the chart area, so we position the label above it
  */
 const createMinMaxLabel = (labelText: string) => {
-  return ({ x, y }: { x?: number; y?: number }) => {
-    if (!x || !y) {
-      // Return empty group instead of null
+  return (props: any) => {
+    const { x, y, viewBox } = props
+    console.log('MIN/MAX Label props:', { x, y, viewBox })
+    
+    if (x === undefined || y === undefined) {
       return <g />
     }
     
-    // Position label above the chart area (in the top margin)
-    // y is at the top of the chart area, so we position above it
-    const labelY = y - 25
+    // Use y coordinate from the line (which is at the top of chart area)
+    // Position label in the middle - use viewBox if available, otherwise estimate
+    let labelY: number
+    if (viewBox && viewBox.height) {
+      // y is at the top of chart area, so center is y + height/2
+      labelY = y + (viewBox.height / 2) - 9
+    } else {
+      // Fallback: use y coordinate and estimate chart height (300px - margins)
+      labelY = y + 130 // Approximately middle of 260px chart area
+    }
+    
+    // Calculate text width to adjust rect width dynamically
+    const textWidth = Math.max(60, labelText.length * 5.5 + 10)
     
     return (
       <g>
         <rect
-          x={x - 20}
+          x={x - textWidth / 2}
           y={labelY}
-          width={40}
-          height={16}
-          fill="rgba(236, 145, 23, 0.9)"
-          rx={2}
+          width={textWidth}
+          height={18}
+          fill="rgba(236, 145, 23, 0.95)"
+          rx={3}
+          stroke="rgba(236, 145, 23, 1)"
+          strokeWidth={1}
         />
         <text
           x={x}
-          y={labelY + 12}
+          y={labelY + 13}
           textAnchor="middle"
           fill="#fff"
-          fontSize="10"
+          fontSize="11"
           fontWeight="600"
         >
           {labelText}
@@ -91,11 +107,13 @@ export function LiquidityDistributionChart({
   data,
   loading,
 }: LiquidityDistributionChartProps) {
-  const [chartData, setChartData] = React.useState<Array<{ tick: number; liquidity: number; price: number; inRange?: boolean }>>([])
-  const [currentTick, setCurrentTick] = React.useState<number>(0)
+  const [chartData, setChartData] = React.useState<Array<{ relativePct: number; liquidity: number; price: number; inRange?: boolean }>>([])
   const [currentPrice, setCurrentPrice] = React.useState<number>(0)
-  const [minTick, setMinTick] = React.useState<number>(0)
-  const [maxTick, setMaxTick] = React.useState<number>(0)
+  const [minRelativePct, setMinRelativePct] = React.useState<number | null>(null)
+  const [maxRelativePct, setMaxRelativePct] = React.useState<number | null>(null)
+  const [domainMin, setDomainMin] = React.useState<number | null>(null)
+  const [domainMax, setDomainMax] = React.useState<number | null>(null)
+  const [niceTicks, setNiceTicks] = React.useState<number[]>([])
   const [processing, setProcessing] = React.useState(false)
 
   React.useEffect(() => {
@@ -113,12 +131,29 @@ export function LiquidityDistributionChart({
     console.log('Liquidity data received:', data)
 
       // Handle different possible response structures
-    // The API might return data directly or nested in a 'data' property
-    const responseData = (data as any).data || data
-    const rootData = data as any // Keep reference to root data object
+    // API structure: { chainId, vaultId, currentPrice, currentTick, data: [{ relativePct, liquidity }, ...] }
+    const rootData = data as any // Root object with chainId, vaultId, etc.
+    const responseData = rootData.data || rootData // The data array or the root itself
+    
+    console.log('Root data keys:', Object.keys(rootData))
+    if (Array.isArray(rootData.data)) {
+      console.log('Data array length:', rootData.data.length)
+      if (rootData.data.length > 0) {
+        console.log('First data point:', rootData.data[0])
+      }
+    }
     
     // Try to find ticks in various possible locations
-    let ticks = responseData.ticks || responseData.liquidityTicks || responseData.profile?.ticks
+    // API returns: { data: [{ relativePct, liquidity }, ...] } or { ticks: [...] }
+    // Check if responseData is already an array (the data array)
+    let ticks: any[] | undefined
+    if (Array.isArray(responseData)) {
+      ticks = responseData
+    } else if (Array.isArray(rootData.data)) {
+      ticks = rootData.data
+    } else {
+      ticks = responseData.ticks || responseData.liquidityTicks || responseData.profile?.ticks
+    }
     
     // If ticks is not an array, check if it's stored as numeric keys (sparse array-like object)
     if (!ticks || !Array.isArray(ticks)) {
@@ -230,63 +265,190 @@ export function LiquidityDistributionChart({
       setProcessing(false)
       return
     }
+    
+    // Sample ticks if we have too many (for performance)
+    // This applies to both array ticks and numeric key ticks
+    // Use adaptive limit based on data size
+    // Reduced limits significantly to ensure bars are visible (not too thin)
+    // With numeric X-axis, Recharts BarChart needs fewer points for visible bars
+    // Target: ~2-3px per bar minimum for visibility (chart width ~600px = max 200-300 bars)
+    const getMaxTicks = (dataLength: number) => {
+      if (dataLength > 20000) return 200 // Very large datasets: 200 points (~3px per bar)
+      if (dataLength > 10000) return 250 // Large datasets: 250 points (~2.4px per bar)
+      if (dataLength > 5000) return 300 // Medium-large: 300 points (~2px per bar)
+      return 350 // Smaller datasets: 350 points (~1.7px per bar)
+    }
+    
+    const MAX_TICKS = getMaxTicks(ticks.length)
+    
+    if (ticks.length > MAX_TICKS) {
+      console.log(`Sampling ${ticks.length} ticks down to ${MAX_TICKS} for performance`)
+      
+      // First, sort by relativePct to ensure proper ordering
+      const sortedTicks = [...ticks].sort((a: any, b: any) => {
+        const aPct = parseFloat(String(a.relativePct ?? '0'))
+        const bPct = parseFloat(String(b.relativePct ?? '0'))
+        return aPct - bPct
+      })
+      
+      // Separate ticks with liquidity from those without
+      const ticksWithLiquidity: Array<{ tick: any; liquidity: number; index: number }> = []
+      const ticksWithoutLiquidity: Array<{ tick: any; index: number }> = []
+      
+      for (let i = 0; i < sortedTicks.length; i++) {
+        const tick = sortedTicks[i]
+        const liquidity = parseFloat(String(tick.liquidity ?? tick.liquidityGross ?? tick.gross ?? '0'))
+        if (liquidity > 0) {
+          ticksWithLiquidity.push({ tick, liquidity, index: i })
+        } else {
+          ticksWithoutLiquidity.push({ tick, index: i })
+        }
+      }
+      
+      const sampled: any[] = []
+      const sampledIndices = new Set<number>()
+      
+      // Strategy: Prioritize ticks with liquidity, but also sample evenly across the range
+      // 1. Always include first and last (regardless of liquidity)
+      if (sortedTicks.length > 0) {
+        sampled.push(sortedTicks[0])
+        sampledIndices.add(0)
+      }
+      if (sortedTicks.length > 1) {
+        const lastIndex = sortedTicks.length - 1
+        sampled.push(sortedTicks[lastIndex])
+        sampledIndices.add(lastIndex)
+      }
+      
+      // 2. Include 0% if it exists
+      const zeroIndex = sortedTicks.findIndex((t: any) => {
+        const pct = parseFloat(String(t.relativePct ?? '0'))
+        return Math.abs(pct) < 0.01
+      })
+      if (zeroIndex >= 0 && !sampledIndices.has(zeroIndex)) {
+        sampled.push(sortedTicks[zeroIndex])
+        sampledIndices.add(zeroIndex)
+      }
+      
+      // 3. Sample ticks with liquidity (prioritize higher liquidity)
+      if (ticksWithLiquidity.length > 0) {
+        // Sort by liquidity (descending) to prioritize high-liquidity areas
+        const sortedByLiquidity = [...ticksWithLiquidity].sort((a, b) => b.liquidity - a.liquidity)
+        
+        // Take top liquidity ticks (up to 40% of max)
+        const topLiquidityCount = Math.floor(MAX_TICKS * 0.4)
+        for (let i = 0; i < Math.min(topLiquidityCount, sortedByLiquidity.length) && sampled.length < MAX_TICKS; i++) {
+          const item = sortedByLiquidity[i]
+          if (!sampledIndices.has(item.index)) {
+            sampled.push(item.tick)
+            sampledIndices.add(item.index)
+          }
+        }
+        
+        // Sample remaining liquidity ticks evenly across the range
+        const remainingLiquiditySlots = Math.floor(MAX_TICKS * 0.3) - (sampled.length - 3) // Reserve space
+        if (remainingLiquiditySlots > 0 && ticksWithLiquidity.length > 0) {
+          // Sort back by index for even sampling
+          ticksWithLiquidity.sort((a, b) => a.index - b.index)
+          const step = Math.max(1, Math.floor(ticksWithLiquidity.length / remainingLiquiditySlots))
+          for (let i = step; i < ticksWithLiquidity.length - 1 && sampled.length < MAX_TICKS - 1; i += step) {
+            const item = ticksWithLiquidity[i]
+            if (!sampledIndices.has(item.index)) {
+              sampled.push(item.tick)
+              sampledIndices.add(item.index)
+            }
+          }
+        }
+      }
+      
+      // 4. Fill remaining slots with evenly sampled ticks (including zero liquidity) to show full range
+      const remainingSlots = MAX_TICKS - sampled.length
+      if (remainingSlots > 0) {
+        const step = Math.max(1, Math.floor(sortedTicks.length / remainingSlots))
+        for (let i = step; i < sortedTicks.length - 1 && sampled.length < MAX_TICKS; i += step) {
+          if (!sampledIndices.has(i)) {
+            sampled.push(sortedTicks[i])
+            sampledIndices.add(i)
+          }
+        }
+      }
+      
+      // Sort by relativePct to maintain order
+      sampled.sort((a: any, b: any) => {
+        const aPct = parseFloat(String(a.relativePct ?? '0'))
+        const bPct = parseFloat(String(b.relativePct ?? '0'))
+        return aPct - bPct
+      })
+      
+      ticks = sampled.slice(0, MAX_TICKS)
+      console.log(`Sampled down to ${ticks.length} ticks (from ${ticksWithLiquidity.length} with liquidity, ${ticksWithoutLiquidity.length} without)`)
+    }
 
     // Process ticks data - handle different field name variations
     // Based on the API response, ticks have: { relativePct, liquidity }
     // We need to calculate the actual tick index and price from relativePct and currentTick
-    const currentTickValue = responseData.currentTick ?? rootData.currentTick ?? 0
-    const currentPriceValue = parseFloat(String(responseData.currentPrice ?? rootData.currentPrice ?? '0'))
+    // currentPrice and currentTick are on the root object, not in the data array
+    const currentTickValue = rootData.currentTick ?? 0
+    const currentPriceValue = parseFloat(String(rootData.currentPrice ?? '0'))
     
     // Pre-calculate constants for performance
     const logBase = Math.log(1.0001)
     const ticksCenter = Math.floor(ticks.length / 2)
     
-    // Process ticks efficiently
-    const processed: Array<{ tick: number; liquidity: number; price: number; relativePct?: number }> = []
+    // Process ticks efficiently - use relativePct as primary key
+    const processed: Array<{ relativePct: number; liquidity: number; price: number }> = []
     
     for (let i = 0; i < ticks.length; i++) {
       const tick = ticks[i]
-      let tickIndex: number
+      let relativePct: number
       let price: number
       
-      // If tick has tickIndex, use it directly
-      if (tick.tickIndex !== undefined) {
-        tickIndex = Number(tick.tickIndex)
-        price = parseFloat(String(tick.price0 ?? tick.price ?? tick.price0Value ?? '0'))
-      } else if (tick.relativePct !== undefined && currentTickValue !== 0 && currentPriceValue > 0) {
-        // Calculate tick index from relativePct
-        // relativePct is percentage relative to current price
-        const relativePct = parseFloat(String(tick.relativePct))
-        const priceMultiplier = 1 + (relativePct / 100)
-        const targetPrice = currentPriceValue * priceMultiplier
-        
-        // Calculate tick from price: tick = log(price) / log(1.0001)
-        tickIndex = Math.round(Math.log(targetPrice) / logBase)
-        price = targetPrice
+      // Extract relativePct - this is our primary dimension
+      if (tick.relativePct !== undefined) {
+        relativePct = parseFloat(String(tick.relativePct))
       } else {
-        // Fallback: use array index as tick offset
-        tickIndex = currentTickValue + (i - ticksCenter) * 10
-        price = Math.pow(1.0001, tickIndex)
+        // Skip if no relativePct (we need it for the chart)
+        continue
+      }
+      
+      // Calculate price from relativePct
+      if (currentPriceValue > 0) {
+        const priceMultiplier = 1 + (relativePct / 100)
+        price = currentPriceValue * priceMultiplier
+      } else if (tick.price0 !== undefined || tick.price !== undefined || tick.price0Value !== undefined) {
+        price = parseFloat(String(tick.price0 ?? tick.price ?? tick.price0Value ?? '0'))
+      } else {
+        // Skip if we can't calculate price
+        continue
       }
       
       const liquidity = parseFloat(String(tick.liquidity ?? tick.liquidityGross ?? tick.gross ?? '0'))
       
-      // Only include valid ticks with liquidity
-      if (!isNaN(tickIndex) && liquidity > 0) {
+      // Include all ticks (even with 0 liquidity) for evenly spaced bars and complete range visualization
+      if (!isNaN(relativePct) && !isNaN(price)) {
         processed.push({
-          tick: tickIndex,
+          relativePct: relativePct,
           liquidity: liquidity,
           price: price || 0,
-          relativePct: tick.relativePct,
         })
       }
     }
     
-    // Sort by tick index
-    processed.sort((a, b) => a.tick - b.tick)
+    // Sort by relativePct
+    processed.sort((a, b) => a.relativePct - b.relativePct)
+
+    console.log(`Processed ${processed.length} ticks`)
+    if (processed.length > 0) {
+      console.log('First processed tick:', processed[0])
+      console.log('Last processed tick:', processed[processed.length - 1])
+      const ticksWithLiquidity = processed.filter(t => t.liquidity > 0)
+      console.log(`Ticks with liquidity > 0: ${ticksWithLiquidity.length} out of ${processed.length}`)
+    }
 
     if (processed.length === 0) {
       console.warn('No valid ticks after processing')
+      console.warn('Ticks array:', ticks)
+      console.warn('Current price:', currentPriceValue, 'Current tick:', currentTickValue)
       setChartData([])
       setProcessing(false)
       return
@@ -294,19 +456,15 @@ export function LiquidityDistributionChart({
 
     setChartData(processed)
 
-    // Set current tick and price - use the values we already extracted
-    if (currentTickValue !== undefined && currentTickValue !== null && currentTickValue !== 0) {
-      setCurrentTick(Number(currentTickValue))
-    }
+    // Set current price
     if (currentPriceValue !== undefined && currentPriceValue !== null && currentPriceValue > 0) {
       setCurrentPrice(currentPriceValue)
     }
 
-    // Calculate min/max ticks from active liquidity range
+    // Calculate min/max relativePct from active liquidity range
     // Find the range where most liquidity is concentrated
     if (processed.length > 0) {
       // Find ticks with significant liquidity (above threshold)
-      // Use reduce for better performance with large arrays
       let maxLiquidity = 0
       for (let i = 0; i < processed.length; i++) {
         if (processed[i].liquidity > maxLiquidity) {
@@ -316,47 +474,98 @@ export function LiquidityDistributionChart({
       
       const threshold = maxLiquidity * 0.1 // 10% of max liquidity
       
-      // Find first and last ticks with significant liquidity
-      let firstActiveTick: number | null = null
-      let lastActiveTick: number | null = null
+      // Find first and last relativePct with significant liquidity
+      let firstActiveRelativePct: number | null = null
+      let lastActiveRelativePct: number | null = null
       
       for (let i = 0; i < processed.length; i++) {
         if (processed[i].liquidity >= threshold) {
-          if (firstActiveTick === null) {
-            firstActiveTick = processed[i].tick
+          if (firstActiveRelativePct === null) {
+            firstActiveRelativePct = processed[i].relativePct
           }
-          lastActiveTick = processed[i].tick
+          lastActiveRelativePct = processed[i].relativePct
         }
       }
       
-      if (firstActiveTick !== null && lastActiveTick !== null && firstActiveTick !== lastActiveTick) {
-        setMinTick(firstActiveTick)
-        setMaxTick(lastActiveTick)
-      } else {
-        // Fallback: use range around current price or all data
-        if (currentTickValue !== 0 && currentPriceValue > 0) {
-          // Show range around current price: ±40% price range
-          const priceRange = currentPriceValue * 0.4
-          const minPrice = Math.max(currentPriceValue - priceRange, 0.0001)
-          const maxPrice = currentPriceValue + priceRange
-          const logBase = Math.log(1.0001)
-          const calculatedMin = Math.round(Math.log(minPrice) / logBase)
-          const calculatedMax = Math.round(Math.log(maxPrice) / logBase)
-          setMinTick(calculatedMin)
-          setMaxTick(calculatedMax)
-          console.log('Using calculated range:', { calculatedMin, calculatedMax, currentTickValue, currentPriceValue })
+      if (firstActiveRelativePct !== null && lastActiveRelativePct !== null && firstActiveRelativePct !== lastActiveRelativePct) {
+        setMinRelativePct(firstActiveRelativePct)
+        setMaxRelativePct(lastActiveRelativePct)
+        console.log('Set MIN/MAX from active range:', { firstActiveRelativePct, lastActiveRelativePct })
         } else if (processed.length > 0) {
-          // Use first and last tick from processed data
-          const firstTick = processed[0].tick
-          const lastTick = processed[processed.length - 1].tick
-          setMinTick(firstTick)
-          setMaxTick(lastTick)
-          console.log('Using data range:', { firstTick, lastTick, dataLength: processed.length })
+        // Fallback: use first and last relativePct from processed data
+        const firstRelativePct = processed[0].relativePct
+        const lastRelativePct = processed[processed.length - 1].relativePct
+        setMinRelativePct(firstRelativePct)
+        setMaxRelativePct(lastRelativePct)
+        console.log('Using data range:', { firstRelativePct, lastRelativePct, dataLength: processed.length })
         } else {
           // No data, reset
-          setMinTick(0)
-          setMaxTick(0)
+        setMinRelativePct(null)
+        setMaxRelativePct(null)
+      }
+      
+      // Calculate domain with padding and nice ticks
+      if (processed.length > 0) {
+        const dataMin = processed[0].relativePct
+        const dataMax = processed[processed.length - 1].relativePct
+        const range = dataMax - dataMin
+        
+        // Add 5% padding on each side (minimum 2% absolute padding)
+        const padding = Math.max(range * 0.05, Math.max(Math.abs(dataMin), Math.abs(dataMax)) * 0.02, 2)
+        let domainMinValue = dataMin - padding
+        let domainMaxValue = dataMax + padding
+        
+        // Ensure 0% is centered visually if data spans both sides
+        // If data is mostly negative, extend positive side; if mostly positive, extend negative side
+        const absMin = Math.abs(domainMinValue)
+        const absMax = Math.abs(domainMaxValue)
+        const maxExtent = Math.max(absMin, absMax)
+        
+        // Center around 0% if data spans both sides, or extend to balance
+        if (domainMinValue < 0 && domainMaxValue > 0) {
+          // Data spans both sides - center at 0%
+          domainMinValue = -maxExtent
+          domainMaxValue = maxExtent
+        } else if (domainMinValue >= 0) {
+          // All positive - extend negative side to show 0%
+          domainMinValue = Math.min(-maxExtent * 0.1, domainMinValue - padding)
+        } else {
+          // All negative - extend positive side to show 0%
+          domainMaxValue = Math.max(maxExtent * 0.1, domainMaxValue + padding)
         }
+        
+        setDomainMin(domainMinValue)
+        setDomainMax(domainMaxValue)
+        console.log('Set domain:', { domainMinValue, domainMaxValue, dataMin, dataMax })
+        
+        // Generate nice ticks (every 20% or 10% depending on range)
+        const tickRange = domainMaxValue - domainMinValue
+        const tickInterval = tickRange > 100 ? 20 : 10 // Use 20% for large ranges, 10% for smaller
+        
+        // Start from a nice number below domainMin
+        const startTick = Math.floor(domainMinValue / tickInterval) * tickInterval
+        const endTick = Math.ceil(domainMaxValue / tickInterval) * tickInterval
+        
+        const ticks: number[] = []
+        for (let tick = startTick; tick <= endTick; tick += tickInterval) {
+          if (tick >= domainMinValue && tick <= domainMaxValue) {
+            ticks.push(tick)
+          }
+        }
+        
+        // Always include 0% if in range
+        if (domainMinValue <= 0 && domainMaxValue >= 0 && !ticks.includes(0)) {
+          ticks.push(0)
+          ticks.sort((a, b) => a - b)
+        }
+        
+        setNiceTicks(ticks)
+        console.log('Set nice ticks:', ticks.length, 'ticks')
+      } else {
+        // Reset domain if no processed data
+        setDomainMin(null)
+        setDomainMax(null)
+        setNiceTicks([])
       }
     }
     
@@ -368,24 +577,32 @@ export function LiquidityDistributionChart({
   // Must be called before any conditional returns (Rules of Hooks)
   // This shows ALL available data, with MIN/MAX range clearly marked
   const visibleData = React.useMemo(() => {
-    if (chartData.length === 0) return []
+    if (chartData.length === 0) {
+      console.log('visibleData: chartData is empty')
+      return []
+    }
     
-    // Show ALL available data, but mark which ticks are inside vs outside the active range
+    console.log('visibleData: processing', chartData.length, 'data points')
+    console.log('visibleData: minRelativePct', minRelativePct, 'maxRelativePct', maxRelativePct)
+    
+    // Show ALL available data, but mark which relativePct are inside vs outside the active range
     // This gives full context of liquidity distribution beyond the MIN/MAX range
-    if (minTick !== 0 && maxTick !== 0 && minTick !== maxTick) {
+    if (minRelativePct !== null && maxRelativePct !== null && minRelativePct !== maxRelativePct) {
       // Mark all data points with inRange flag - show everything, not just near the range
       const result: Array<typeof chartData[0] & { inRange: boolean }> = []
       for (let i = 0; i < chartData.length; i++) {
         const d = chartData[i]
         result.push({
           ...d,
-          inRange: d.tick >= minTick && d.tick <= maxTick
+          inRange: d.relativePct >= minRelativePct && d.relativePct <= maxRelativePct
         })
       }
       
       // If we have too much data, we still need to sample for performance
       // But we'll sample intelligently to preserve both in-range and out-of-range data
-      if (result.length > 2000) {
+      // Reduced limit significantly - with 300+ bars, each becomes < 2px and invisible
+      // Further reduced to ensure bars are visible
+      if (result.length > 300) {
         // Separate in-range and out-of-range data
         const inRangeData = result.filter(d => d.inRange)
         const outOfRangeData = result.filter(d => !d.inRange)
@@ -395,7 +612,7 @@ export function LiquidityDistributionChart({
         let sampled: Array<typeof chartData[0] & { inRange: boolean }> = [...inRangeData]
         
         if (outOfRangeData.length > 0) {
-          const remainingSlots = 2000 - inRangeData.length
+          const remainingSlots = 300 - inRangeData.length
           if (remainingSlots > 0 && outOfRangeData.length > remainingSlots) {
             // Sample out-of-range data evenly
             const step = Math.ceil(outOfRangeData.length / remainingSlots)
@@ -414,55 +631,29 @@ export function LiquidityDistributionChart({
           }
         }
         
-        // Sort by tick to maintain order
-        sampled.sort((a, b) => a.tick - b.tick)
-        return sampled.slice(0, 2000)
+        // Sort by relativePct to maintain order
+        sampled.sort((a, b) => a.relativePct - b.relativePct)
+        const final = sampled.slice(0, 300)
+        console.log('visibleData: sampled to', final.length, 'points')
+        return final
       }
       
+      console.log('visibleData: returning all', result.length, 'points')
       return result
-    }
-    
-    // Otherwise, show data around current price (±50% price range)
-    if (currentTick !== 0 && chartData.length > 0) {
-      // Find current price from data
-      let currentPrice = 0
-      for (let i = 0; i < chartData.length; i++) {
-        if (Math.abs(chartData[i].tick - currentTick) < 100) {
-          currentPrice = chartData[i].price
-          break
-        }
-      }
-      
-      if (currentPrice > 0) {
-        const priceRange = currentPrice * 0.5 // ±50%
-        const minPrice = Math.max(currentPrice - priceRange, 0.0001)
-        const maxPrice = currentPrice + priceRange
-        
-        const result: Array<typeof chartData[0] & { inRange: boolean }> = []
-        for (let i = 0; i < chartData.length; i++) {
-          const d = chartData[i]
-          if (d.price >= minPrice && d.price <= maxPrice) {
-            result.push({
-              ...d,
-              inRange: minTick !== 0 && maxTick !== 0 ? d.tick >= minTick && d.tick <= maxTick : true
-            })
-          }
-        }
-        return result
-      }
     }
     
     // Fallback: show all data (but limit to reasonable size for performance)
     // Mark all as in range if we don't have min/max
-    if (chartData.length > 500) {
+    // Reduced limit to ensure bars are visible
+    if (chartData.length > 300) {
       // Sample data if too large
-      const step = Math.ceil(chartData.length / 500)
+      const step = Math.ceil(chartData.length / 300)
       const result: Array<typeof chartData[0] & { inRange: boolean }> = []
       for (let i = 0; i < chartData.length; i += step) {
         result.push({
           ...chartData[i],
-          inRange: minTick !== 0 && maxTick !== 0 
-            ? chartData[i].tick >= minTick && chartData[i].tick <= maxTick 
+          inRange: minRelativePct !== null && maxRelativePct !== null 
+            ? chartData[i].relativePct >= minRelativePct && chartData[i].relativePct <= maxRelativePct 
             : true
         })
       }
@@ -472,9 +663,9 @@ export function LiquidityDistributionChart({
     // Mark all data points with inRange flag
     return chartData.map(d => ({
       ...d,
-      inRange: minTick !== 0 && maxTick !== 0 ? d.tick >= minTick && d.tick <= maxTick : true
+      inRange: minRelativePct !== null && maxRelativePct !== null ? d.relativePct >= minRelativePct && d.relativePct <= maxRelativePct : true
     }))
-  }, [chartData, minTick, maxTick, currentTick])
+  }, [chartData, minRelativePct, maxRelativePct])
 
   // Show loading state during API fetch or data processing
   if (loading || processing) {
@@ -533,28 +724,40 @@ export function LiquidityDistributionChart({
     )
   }
 
-  // Custom tooltip
+  // Custom tooltip - aligned to relativePct scale
+  // Recharts automatically positions tooltip based on the coordinate system
   const CustomTooltip = ({ active, payload }: any) => {
     if (active && payload && payload.length) {
       const data = payload[0].payload
-      const isInRange = data.inRange !== false && minTick !== 0 && maxTick !== 0
-        ? data.tick >= minTick && data.tick <= maxTick
+      const isInRange = data.inRange !== false && minRelativePct !== null && maxRelativePct !== null
+        ? data.relativePct >= minRelativePct && data.relativePct <= maxRelativePct
         : data.inRange !== false
+      
+      // Format relativePct with sign
+      const relativePctFormatted = data.relativePct >= 0 
+        ? `+${data.relativePct.toFixed(2)}%` 
+        : `${data.relativePct.toFixed(2)}%`
+      
+      // Format price with $ and commas
+      const priceFormatted = `$${parseFloat(String(data.price)).toLocaleString('en-US', { 
+        minimumFractionDigits: 2, 
+        maximumFractionDigits: 2 
+      })}`
       
       return (
         <div className="bg-slate-900 border border-slate-700 rounded-lg p-3 shadow-lg">
           <p className="text-sm font-medium text-foreground">
-            Price: {formatPriceFromTick(data.price)}
+            Price: {priceFormatted}
           </p>
           <p className="text-xs text-muted-foreground">
-            Tick: {data.tick}
+            Distance vs current: {relativePctFormatted}
           </p>
           <p className="text-xs text-muted-foreground">
             Liquidity: {data.liquidity.toLocaleString()}
           </p>
-          {minTick !== 0 && maxTick !== 0 && (
+          {minRelativePct !== null && maxRelativePct !== null && (
             <p className={`text-xs mt-1 ${isInRange ? 'text-arrakis-orange' : 'text-muted-foreground'}`}>
-              {isInRange ? '✓ Inside active range' : 'Outside active range'}
+              {isInRange ? 'In Range' : 'Outside active range'}
             </p>
           )}
         </div>
@@ -569,29 +772,43 @@ export function LiquidityDistributionChart({
         <CardTitle>Liquidity Distribution</CardTitle>
         <CardDescription>Liquidity concentration across the vault's price range</CardDescription>
       </CardHeader>
-      <CardContent className="p-0">
+      <CardContent className="p-0 relative">
         <ResponsiveContainer width="100%" height={300}>
-          <BarChart
-            data={visibleData.length > 0 ? visibleData : chartData}
-            margin={{ top: 24, right: 20, bottom: 20, left: 5 }}
-            barCategoryGap={0}
-            barGap={0}
+          <ComposedChart
+            data={(() => {
+              const chartDataToUse = visibleData.length > 0 ? visibleData : chartData
+              console.log('BarChart rendering with', chartDataToUse.length, 'data points')
+              console.log('Domain:', domainMin, 'to', domainMax)
+              if (chartDataToUse.length > 0) {
+                console.log('Sample data point:', chartDataToUse[0])
+                console.log('Data range - min relativePct:', Math.min(...chartDataToUse.map(d => d.relativePct)))
+                console.log('Data range - max relativePct:', Math.max(...chartDataToUse.map(d => d.relativePct)))
+                console.log('Data range - min liquidity:', Math.min(...chartDataToUse.map(d => d.liquidity)))
+                console.log('Data range - max liquidity:', Math.max(...chartDataToUse.map(d => d.liquidity)))
+              }
+              return chartDataToUse
+            })()}
+            margin={{ top: 50, right: 20, bottom: 20, left: 5 }}
           >
             <CartesianGrid strokeDasharray="3 3" stroke="#9F9C97" opacity={0.2} />
             
-            {/* X-Axis with price formatting */}
+            {/* X-Axis with relativePct (%) formatting - exact domain with nice ticks */}
             <XAxis
-              dataKey="tick"
-              tickFormatter={(tick) => {
-                // Use all chartData for lookup, not just visibleData
-                const dataPoint = chartData.find((d) => d.tick === tick)
-                return dataPoint ? formatPriceFromTick(dataPoint.price) : ''
+              dataKey="relativePct"
+              domain={domainMin !== null && domainMax !== null && domainMin !== domainMax ? [domainMin, domainMax] : undefined}
+              ticks={niceTicks.length > 0 ? niceTicks : undefined}
+              tickFormatter={(value) => {
+                // Format as percentage with sign
+                return value >= 0 ? `+${value.toFixed(0)}%` : `${value.toFixed(0)}%`
               }}
               stroke="#9F9C97"
               fontSize={12}
               tick={{ fill: '#9F9C97', fontFamily: 'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace' }}
-              interval="preserveStartEnd"
-              tickCount={4}
+              type="number"
+              scale="linear"
+              allowDataOverflow={false}
+              allowDecimals={true}
+              padding={{ left: 0, right: 0 }}
             />
             
             {/* Y-Axis */}
@@ -599,110 +816,106 @@ export function LiquidityDistributionChart({
               stroke="#9F9C97"
               fontSize={12}
               tick={{ fill: '#9F9C97', fontFamily: 'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace' }}
-              width={50}
+              width={60}
+              domain={['dataMin', 'dataMax']}
+              allowDecimals={true}
+              label={{ value: 'Liquidity', angle: -90, position: 'insideLeft', fill: '#9F9C97', fontSize: 12 }}
               tickFormatter={(value) => {
-                if (value >= 1e6) return `${(value / 1e6).toFixed(1)}M`
-                if (value >= 1e3) return `${(value / 1e3).toFixed(1)}k`
-                return value.toString()
+                // Round to reasonable precision based on magnitude
+                if (value >= 1e6) return `${(value / 1e6).toFixed(2)}M`
+                if (value >= 1e3) return `${(value / 1e3).toFixed(2)}k`
+                if (value >= 1) return value.toFixed(2)
+                if (value >= 0.01) return value.toFixed(3)
+                return value.toFixed(4)
               }}
             />
             
             <Tooltip content={<CustomTooltip />} />
             
-            {/* Render bars first (behind) */}
-            {/* Use different colors to distinguish inside vs outside the active range */}
-            <Bar
+            {/* Use Area chart instead of Bar for continuous numeric X-axis */}
+            {/* Area chart works better with type="number" X-axis */}
+            <Area
               dataKey="liquidity"
-              fill="#598CD8"
+              stroke="#005efe"
+              fill="#005efe"
+              fillOpacity={0.6}
+              strokeWidth={1}
               isAnimationActive={false}
-              radius={[0, 0, 0, 0]}
-            >
-              {visibleData.map((entry, index) => {
-                // Use brighter blue for bars inside the active range
-                // Use muted/darker blue for bars outside the range
-                const isInRange = (entry as any).inRange !== false
-                return (
-                  <Cell
-                    key={`cell-${index}`}
-                    fill={isInRange ? "#598CD8" : "#3B5A8A"} // Brighter blue inside, darker blue outside
-                    opacity={isInRange ? 1 : 0.6} // Slightly transparent for outside range
-                  />
-                )
-              })}
-            </Bar>
+              type="monotone"
+            />
             
             {/* Active liquidity range (MIN → MAX) - render after bars but before lines */}
             {/* Always show if min/max are set, even if outside visible data range */}
-            {minTick !== 0 && maxTick !== 0 && minTick !== maxTick && (
+            {minRelativePct !== null && maxRelativePct !== null && minRelativePct !== maxRelativePct && (
               <ReferenceArea
-                x1={minTick}
-                x2={maxTick}
+                x1={minRelativePct}
+                x2={maxRelativePct}
                 fill="rgba(236, 145, 23, 0.12)"
                 stroke="none"
               />
             )}
             
             {/* Reference lines render on top (render last) */}
-            {/* Current price line (solid orange) with price label */}
-            {currentTick !== 0 && (
+            {/* Current price line (solid orange) at 0% */}
+            {currentPrice > 0 && (
               <ReferenceLine
-                x={currentTick}
+                x={0}
                 stroke="#EC9117"
                 strokeWidth={2}
-                label={({ x, y }) => {
-                  if (!x || !y) return <g />
-                  const priceText = currentPrice > 0 ? formatPriceFromTick(currentPrice) : 'Current'
-                  // Calculate text width to adjust rect width
-                  const textWidth = priceText.length * 6 + 10
-                  return (
-                    <g>
-                      <rect
-                        x={x - textWidth / 2}
-                        y={y - 20}
-                        width={textWidth}
-                        height={16}
-                        fill="rgba(236, 145, 23, 0.9)"
-                        rx={2}
-                      />
-                      <text
-                        x={x}
-                        y={y - 8}
-                        textAnchor="middle"
-                        fill="#fff"
-                        fontSize="10"
-                        fontWeight="600"
-                      >
-                        {priceText}
-                      </text>
-                    </g>
-                  )
-                }}
               />
             )}
             
-            {/* Min tick line (dashed orange) with label */}
-            {minTick !== 0 && (
+            {/* Min relativePct line (dashed orange) */}
+            {minRelativePct !== null && (
               <ReferenceLine
-                x={minTick}
+                x={minRelativePct}
                 stroke="#EC9117"
                 strokeDasharray="4 4"
                 strokeWidth={1.5}
-                label={createMinMaxLabel('MIN')}
               />
             )}
             
-            {/* Max tick line (dashed orange) with label */}
-            {maxTick !== 0 && (
+            {/* Max relativePct line (dashed orange) */}
+            {maxRelativePct !== null && (
               <ReferenceLine
-                x={maxTick}
+                x={maxRelativePct}
                 stroke="#EC9117"
                 strokeDasharray="4 4"
                 strokeWidth={1.5}
-                label={createMinMaxLabel('MAX')}
               />
             )}
-          </BarChart>
+          </ComposedChart>
         </ResponsiveContainer>
+        
+        {/* Labels overlay - positioned absolutely over the chart */}
+        {currentPrice > 0 && domainMin !== null && domainMax !== null && (
+          <div className="absolute top-2 left-[5px] right-[20px] pointer-events-none z-10">
+            {/* Current Price label - centered with orange background */}
+            {(() => {
+              // Calculate position as percentage within the chart area (between left and right margins)
+              const relativePosition = (0 - domainMin) / (domainMax - domainMin)
+              // Format price without trailing zeros
+              const priceStr = formatPriceFromTick(currentPrice)
+              // Remove trailing zeros but keep at least one decimal if it's a decimal number
+              const formattedPrice = priceStr.includes('.') 
+                ? priceStr.replace(/\.?0+$/, '') 
+                : priceStr
+              
+              return (
+                <div 
+                  className="text-white text-xs font-semibold absolute px-2 py-1 rounded"
+                  style={{
+                    left: `${relativePosition * 100}%`,
+                    transform: 'translateX(-50%)',
+                    backgroundColor: 'hsl(var(--arrakis-orange))',
+                  }}
+                >
+                  {formattedPrice}
+                </div>
+              )
+            })()}
+          </div>
+        )}
       </CardContent>
     </Card>
   )

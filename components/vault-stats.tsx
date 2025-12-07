@@ -4,6 +4,7 @@ import * as React from 'react'
 import { ArrowUpRight, ArrowDownRight, Info, AlertCircle, CheckCircle2, X, XCircle } from 'lucide-react'
 import { cn, formatCompactNumber, formatNumber, getRelativeTime, calculateVaultStatus, type VaultStatus } from '@/lib/utils'
 import { TokenIcon } from '@/components/token-icon'
+import { fetchVaultBalance, fetchFeesHistory } from '@/lib/api'
 
 interface VaultStatsProps {
   data: any
@@ -18,7 +19,7 @@ interface StatItemProps {
 
 interface StatWithChangeProps extends Omit<StatItemProps, 'value'> {
   value: string | number
-  change: number
+  change: number | null
   changeLabel: string
 }
 
@@ -288,9 +289,34 @@ function StatWithChange({
   changeLabel, 
   valueColor = 'text-foreground'
 }: StatWithChangeProps & { valueColor?: string }) {
-  const isPositive = change >= 0
+  // Handle null/undefined/0 values - show grey/empty state
+  if (change === null || change === undefined || change === 0) {
+    return (
+      <StatItem
+        label={label}
+        value={
+          <div className="flex flex-col">
+            <span className={cn('stats-number', valueColor)}>{value}</span>
+            <div className="stats-details">
+              <span className="text-muted-foreground">
+                0.0% {changeLabel}
+              </span>
+            </div>
+          </div>
+        }
+      />
+    )
+  }
+
+  const isPositive = change > 0
   const changeColor = isPositive ? 'text-emerald-500' : 'text-red-500'
   const ChangeIcon = isPositive ? ArrowUpRight : ArrowDownRight
+
+  // Round to 1-2 decimal places
+  // Use 1 decimal for values >= 10, 2 decimals for smaller values
+  const formattedChange = Math.abs(change) >= 10 
+    ? Math.abs(change).toFixed(1)
+    : Math.abs(change).toFixed(2)
 
   return (
     <StatItem
@@ -301,7 +327,7 @@ function StatWithChange({
           <div className="stats-details">
             <ChangeIcon className={cn('stats-details-icon', changeColor)} />
             <span className={changeColor}>
-              {Math.abs(change)}% {changeLabel}
+              {formattedChange}% {changeLabel}
             </span>
           </div>
         </div>
@@ -462,6 +488,15 @@ export function VaultStats({ data, loading }: VaultStatsProps) {
   
   // Calculate price from USD value and actual amount
   const token0Price = token0ActualAmount > 0 ? (token0?.valueUSD || 0) / token0ActualAmount : 0
+  const token1Price = token1ActualAmount > 0 ? (token1?.valueUSD || 0) / token1ActualAmount : 0
+
+  // Check if token0 is a stablecoin - if so, show token1 price instead
+  const stablecoinSymbols = ['USDT', 'USDC', 'DAI', 'BUSD', 'TUSD', 'USDP', 'FRAX', 'LUSD', 'GUSD', 'HUSD', 'SUSD', 'USDX', 'USDN', 'USDD', 'MIM', 'FEI', 'UST', 'EURT', 'EURS']
+  const isToken0Stablecoin = token0?.symbol && stablecoinSymbols.includes(token0.symbol.toUpperCase())
+  
+  // Determine which token price to display
+  const displayToken = isToken0Stablecoin ? token1 : token0
+  const displayPrice = isToken0Stablecoin ? token1Price : token0Price
 
   const totalInventoryUSD = (token0?.valueUSD || 0) + (token1?.valueUSD || 0)
   const token0Ratio = totalInventoryUSD > 0 ? ((token0?.valueUSD || 0) / totalInventoryUSD) * 100 : 50
@@ -497,11 +532,165 @@ export function VaultStats({ data, loading }: VaultStatsProps) {
     return `$${formatNumber(price, 3)}`
   }
 
-  // Mock changes (to be replaced with real data when available)
-  const priceChange = 2.1
-  const tvlChange = -1.29
-  const feesChange = -1.29
-  const apyChange = -1.29
+  // State for historical data and calculated changes
+  const [historicalChanges, setHistoricalChanges] = React.useState<{
+    priceChange: number | null
+    tvlChange: number | null
+    feesChange: number | null
+    apyChange: number | null
+    loading: boolean
+  }>({
+    priceChange: null,
+    tvlChange: null,
+    feesChange: null,
+    apyChange: null,
+    loading: true,
+  })
+
+  // Fetch historical data to calculate "today" changes
+  React.useEffect(() => {
+    // Reset to loading state when data changes (switching vaults)
+    setHistoricalChanges({
+      priceChange: null,
+      tvlChange: null,
+      feesChange: null,
+      apyChange: null,
+      loading: true,
+    })
+
+    if (!data || !chainId || !data.vaultId) {
+      setHistoricalChanges({
+        priceChange: null,
+        tvlChange: null,
+        feesChange: null,
+        apyChange: null,
+        loading: false,
+      })
+      return
+    }
+
+    async function fetchHistoricalData() {
+      try {
+        const now = new Date()
+        const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000) // 24 hours ago
+        const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000) // 30 days ago
+        const thirtyDaysAgoFromYesterday = new Date(yesterday.getTime() - 30 * 24 * 60 * 60 * 1000)
+
+        // Fetch vault balance history (for TVL comparison)
+        const balanceResponse = await fetchVaultBalance(
+          chainId,
+          data.vaultId,
+          yesterday.toISOString(),
+          now.toISOString()
+        )
+
+        // Fetch fees history for 30d fees calculation
+        // Get fees for last 30 days from now
+        const feesNowResponse = await fetchFeesHistory(
+          chainId,
+          data.vaultId,
+          thirtyDaysAgo.toISOString().split('T')[0],
+          now.toISOString().split('T')[0]
+        )
+
+        // Get fees for last 30 days from yesterday
+        const feesYesterdayResponse = await fetchFeesHistory(
+          chainId,
+          data.vaultId,
+          thirtyDaysAgoFromYesterday.toISOString().split('T')[0],
+          yesterday.toISOString().split('T')[0]
+        )
+
+        // Calculate TVL change
+        let tvlChangeValue: number | null = null
+        if (balanceResponse?.data && balanceResponse.data.length > 0) {
+          // Get the earliest data point (closest to 24h ago)
+          const historicalTvl = balanceResponse.data[0]?.totalValueUSD || 0
+          if (historicalTvl > 0 && tvl > 0) {
+            tvlChangeValue = ((tvl - historicalTvl) / historicalTvl) * 100
+          }
+        }
+
+        // Calculate 30d fees change
+        let feesChangeValue: number | null = null
+        // Handle both API response structures (with summary or without)
+        // Prefer summary.totalFeesUSD if available, otherwise sum data points
+        const feesNow = (feesNowResponse as any)?.summary?.totalFeesUSD ?? 
+          (feesNowResponse?.data?.reduce((sum: number, point: any) => {
+            const fees = point.feesUSD ?? 0
+            return sum + (typeof fees === 'number' ? fees : parseFloat(String(fees)) || 0)
+          }, 0) ?? 0)
+        
+        const feesYesterday = (feesYesterdayResponse as any)?.summary?.totalFeesUSD ?? 
+          (feesYesterdayResponse?.data?.reduce((sum: number, point: any) => {
+            const fees = point.feesUSD ?? 0
+            return sum + (typeof fees === 'number' ? fees : parseFloat(String(fees)) || 0)
+          }, 0) ?? 0)
+
+        // Compare current fees30d with historical 30d fees from 24h ago
+        if (feesYesterday > 0 && fees30d > 0) {
+          feesChangeValue = ((fees30d - feesYesterday) / feesYesterday) * 100
+        }
+
+        // Calculate APY change
+        // APY = (fees30d / TVL) * (365 / 30) * 100
+        let apyChangeValue: number | null = null
+        // Calculate APY from current data
+        const currentApy = tvl > 0 && fees30d > 0 
+          ? (fees30d / tvl) * (365 / 30) * 100 
+          : apyValue
+
+        // Calculate historical APY from 24h ago
+        const historicalTvl = balanceResponse?.data?.[0]?.totalValueUSD || null
+        if (historicalTvl && historicalTvl > 0 && feesYesterday > 0) {
+          const historicalApy = (feesYesterday / historicalTvl) * (365 / 30) * 100
+          if (historicalApy > 0) {
+            apyChangeValue = ((currentApy - historicalApy) / historicalApy) * 100
+          }
+        }
+
+        // Calculate price change from historical data
+        let priceChangeValue: number | null = null
+        if (balanceResponse?.data && balanceResponse.data.length > 0 && displayPrice > 0) {
+          // Get the earliest data point (closest to 24h ago)
+          const historicalDataPoint = balanceResponse.data[0]
+          // Use the appropriate token price based on which one we're displaying
+          const historicalPrice = isToken0Stablecoin 
+            ? (historicalDataPoint?.tokens?.token1?.price || 0)
+            : (historicalDataPoint?.tokens?.token0?.price || 0)
+          if (historicalPrice > 0) {
+            priceChangeValue = ((displayPrice - historicalPrice) / historicalPrice) * 100
+          }
+        }
+
+        setHistoricalChanges({
+          priceChange: priceChangeValue,
+          tvlChange: tvlChangeValue,
+          feesChange: feesChangeValue,
+          apyChange: apyChangeValue,
+          loading: false,
+        })
+      } catch (error) {
+        console.error('Error fetching historical data for changes:', error)
+        // Fallback to null values on error
+        setHistoricalChanges({
+          priceChange: null,
+          tvlChange: null,
+          feesChange: null,
+          apyChange: null,
+          loading: false,
+        })
+      }
+    }
+
+    fetchHistoricalData()
+  }, [data, chainId, tvl, fees30d, apyValue, displayPrice, isToken0Stablecoin])
+
+  // Use calculated changes or show 0 (grey) when loading/not available
+  const priceChange = historicalChanges.priceChange ?? (historicalChanges.loading ? null : 0)
+  const tvlChange = historicalChanges.tvlChange ?? (historicalChanges.loading ? null : 0)
+  const feesChange = historicalChanges.feesChange ?? (historicalChanges.loading ? null : 0)
+  const apyChange = historicalChanges.apyChange ?? (historicalChanges.loading ? null : 0)
 
   // Calculate vault health status
   const healthStatus = React.useMemo(() => {
@@ -674,19 +863,29 @@ export function VaultStats({ data, loading }: VaultStatsProps) {
 
       {/* Token Price */}
       <StatItem
-        label={`${token0?.symbol || 'Token'} Price`}
+        label={`${displayToken?.symbol || 'Token'} Price`}
         value={
           <div className="flex flex-col">
-            <span className="stats-number text-foreground">{formatPrice(token0Price)}</span>
+            <span className="stats-number text-foreground">{formatPrice(displayPrice)}</span>
             <div className="stats-details">
-              {priceChange >= 0 ? (
+              {priceChange === null || priceChange === undefined || priceChange === 0 ? (
+                <span className="text-muted-foreground">
+                  0.0% 24h
+                </span>
+              ) : (
+                <>
+                  {priceChange > 0 ? (
                 <ArrowUpRight className="stats-details-icon text-emerald-500" />
               ) : (
                 <ArrowDownRight className="stats-details-icon text-red-500" />
               )}
-              <span className={priceChange >= 0 ? 'text-emerald-500' : 'text-red-500'}>
-                {Math.abs(priceChange)}% 24h
+                  <span className={priceChange > 0 ? 'text-emerald-500' : 'text-red-500'}>
+                    {Math.abs(priceChange) >= 10 
+                      ? Math.abs(priceChange).toFixed(1)
+                      : Math.abs(priceChange).toFixed(2)}% 24h
               </span>
+                </>
+              )}
             </div>
           </div>
         }
@@ -764,12 +963,18 @@ export function VaultStats({ data, loading }: VaultStatsProps) {
             </span>
             <div className="flex-1 h-1.5 bg-blue-500/20 rounded-full overflow-hidden flex">
               <div
-                className="h-full bg-foreground"
-                style={{ width: `${token0Ratio}%` }}
+                className="h-full"
+                style={{ 
+                  width: `${token0Ratio}%`,
+                  backgroundColor: 'hsl(var(--arrakis-orange))'
+                }}
               />
               <div
-                className="h-full bg-blue-500"
-                style={{ width: `${token1Ratio}%` }}
+                className="h-full"
+                style={{ 
+                  width: `${token1Ratio}%`,
+                  backgroundColor: 'hsl(var(--arrakis-blue))'
+                }}
               />
             </div>
             <span className="text-[10px] text-muted-foreground font-mono">
