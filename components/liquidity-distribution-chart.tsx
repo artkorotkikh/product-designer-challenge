@@ -21,7 +21,6 @@
  * - Blue bars: Liquidity amount at each price
  * - Orange shaded area: Active liquidity range (MIN → MAX)
  * - Dashed orange lines: MIN and MAX price boundaries
- * - Solid orange line: Current market price
  */
 
 import * as React from 'react'
@@ -112,7 +111,6 @@ export function LiquidityDistributionChart({
   vaultData,
 }: LiquidityDistributionChartProps) {
   const [chartData, setChartData] = React.useState<Array<{ relativePct: number; liquidity: number; price: number; inRange?: boolean }>>([])
-  const [currentPrice, setCurrentPrice] = React.useState<number>(0)
   const [minRelativePct, setMinRelativePct] = React.useState<number | null>(null)
   const [maxRelativePct, setMaxRelativePct] = React.useState<number | null>(null)
   const [domainMin, setDomainMin] = React.useState<number | null>(null)
@@ -465,11 +463,6 @@ export function LiquidityDistributionChart({
 
     setChartData(processed)
 
-    // Set current price
-    if (currentPriceValue !== undefined && currentPriceValue !== null && currentPriceValue > 0) {
-      setCurrentPrice(currentPriceValue)
-    }
-
     // Calculate min/max relativePct from active liquidity range
     // Find the range where most liquidity is concentrated
     if (processed.length > 0) {
@@ -813,7 +806,7 @@ export function LiquidityDistributionChart({
               }
               return chartDataToUse
             })()}
-            margin={{ top: 50, right: 20, bottom: 20, left: 5 }}
+            margin={{ top: 20, right: 20, bottom: 20, left: 20 }}
           >
             <CartesianGrid strokeDasharray="3 3" stroke="#9F9C97" opacity={0.2} />
             
@@ -882,13 +875,11 @@ export function LiquidityDistributionChart({
             
             {/* Reference lines render on top (render last) */}
             {/* Current price line (solid orange) at 0% */}
-            {currentPrice > 0 && (
-              <ReferenceLine
-                x={0}
-                stroke="#EC9117"
-                strokeWidth={2}
-              />
-            )}
+            <ReferenceLine
+              x={0}
+              stroke="#EC9117"
+              strokeWidth={2}
+            />
             
             {/* Min relativePct line (dashed orange) */}
             {minRelativePct !== null && (
@@ -911,36 +902,6 @@ export function LiquidityDistributionChart({
             )}
           </ComposedChart>
         </ResponsiveContainer>
-        
-        {/* Labels overlay - positioned absolutely over the chart */}
-        {currentPrice > 0 && domainMin !== null && domainMax !== null && (
-          <div className="absolute top-2 left-[5px] right-[20px] pointer-events-none z-10">
-            {/* Current Price label - centered with orange background */}
-            {(() => {
-              // Calculate position as percentage within the chart area (between left and right margins)
-              const relativePosition = (0 - domainMin) / (domainMax - domainMin)
-              // Format price without trailing zeros
-              const priceStr = formatPriceFromTick(currentPrice)
-              // Remove trailing zeros but keep at least one decimal if it's a decimal number
-              const formattedPrice = priceStr.includes('.') 
-                ? priceStr.replace(/\.?0+$/, '') 
-                : priceStr
-              
-              return (
-                <div 
-                  className="text-white text-xs font-semibold absolute px-2 py-1 rounded"
-                  style={{
-                    left: `${relativePosition * 100}%`,
-                    transform: 'translateX(-50%)',
-                    backgroundColor: 'hsl(var(--arrakis-orange))',
-                  }}
-                >
-                  {formattedPrice}
-                </div>
-              )
-            })()}
-          </div>
-        )}
       </CardContent>
     </Card>
   )
